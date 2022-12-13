@@ -1,12 +1,13 @@
 cmake_minimum_required (VERSION 3.24)
 
 add_library(
-	LitchiLib
+	Litchi
 	STATIC
 	LitchiHttpConnect.cpp
+	LitchiSocketConnect.cpp
 )
 
-target_compile_features(LitchiLib PUBLIC cxx_std_23)
-target_link_libraries(LitchiLib PUBLIC asio)
-target_link_libraries(LitchiLib PUBLIC PotatoLib)
-target_include_directories(LitchiLib PUBLIC "../include/")
+target_compile_features(Litchi PUBLIC cxx_std_23)
+target_link_libraries(Litchi PUBLIC asio)
+target_link_libraries(Litchi PUBLIC Potato)
+target_include_directories(Litchi PUBLIC "../include/")

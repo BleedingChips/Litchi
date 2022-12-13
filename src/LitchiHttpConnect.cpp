@@ -2,29 +2,13 @@
 
 namespace Litchi
 {
-	auto HttpConnection::Create(std::u8string_view Host, uint16_t Port) -> Ptr
+	bool HttpConnection11::Connection(std::u8string_view Host, uint16_t Ports = 80)
 	{
-		Ptr P{new HttpConnection{} };
-		if (P)
+		if (TcpSocketConnection::Connect(Host, u8"http"))
 		{
-			asio::ip::tcp::resolver Resolver(P->Context);
-			auto Re = Resolver.resolve(std::string_view{ reinterpret_cast<char const*>(Host.data()), Host.size()}, "http");
-			for (auto& Ite : Re)
-			{
-				std::error_code EC;
-				P->Socket.connect(Ite, EC);
-				if(!EC)
-					return P;
-			}
+			this->Ports = Ports;
+			return true;
 		}
-		return {};
-	}
-
-	HttpConnection::~HttpConnection()
-	{
-		if (Socket.is_open())
-		{
-			Socket.close();
-		}
+		return false;
 	}
 }

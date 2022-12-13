@@ -1,78 +1,54 @@
 #pragma once
-#include "asio.hpp"
+#include "LitchiSocketConnect.h"
 #include "Potato/PotatoMisc.h"
 #include "Potato/PotatoIntrusivePointer.h"
 #include <map>
+#include <optional>
 namespace Litchi
 {
-
-	struct HttpRequest
+	struct HttpConnection11 : protected TcpSocketConnection
 	{
-		
-
-		
-
-		
-	};
-
-	struct HttpRespond
-	{
-
-	};
-
-
-	struct HttpConnection
-	{
-
-		struct Wrapper
-		{
-			void AddRef(HttpConnection* In){ In->RefCount.AddRef(); }
-			void SubRef(HttpConnection* In){ if(In->RefCount.SubRef()) delete In; }
-		};
-
-		using Ptr = Potato::Misc::IntrusivePtr<HttpConnection, HttpConnection::Wrapper>;
-
-		static Ptr Create(std::u8string_view Host, uint16_t Port = 80);
+		bool Connection(std::u8string_view Host, uint16_t Ports = 80);
+		bool Close() { return TcpSocketConnection::Close(); }
+		uint16_t Ports = 0;
+		std::size_t RequestCount = 0;
 
 		enum class Method
 		{
-			GET
-		};
-
-		enum class Version
-		{
-			_1
+			OPT,
+			GET,
+			HEA,
+			POS,
+			PUT,
+			DEL,
+			TRA,
+			CON
 		};
 
 		struct Request
 		{
+			std::u8string_view Target;
 			Method RequestMethod;
-			Version RequestVersion;
-			std::u8string Target;
-			std::map<std::u8string, std::u8string> AdditionalOptional;
-			std::u8string RequestData;
+			bool KeepAlive;
+			std::u8string_view AcceptLanguage;
 		};
 
 		struct Respond
 		{
-			std::u8string TotalRespondData;
-			Version RespondVersion;
-			std::size_t StatuCode;
-			Potato::Misc::IndexSpan<> ServerType;
-			Potato::Misc::IndexSpan<> ContentType;
-			Potato::Misc::IndexSpan<> Content;
+			std::size_t RequestCount;
+			std::size_t MaxRequestCount;
+			std::size_t RespondCode;
+			std::u8string_view RespondStatus;
+			std::map<std::u8string_view, std::u8string_view> Parmetters;
+			std::span<std::byte const> Datas;
 		};
 
-		void SendRequest(HttpRequest const& Request);
-
-	private:
-
-		Potato::Misc::AtomicRefCount RefCount;
-		asio::io_context Context;
-		asio::ip::tcp::socket Socket;
-
-		HttpConnection() : Context(), Socket(Context) {}
-		~HttpConnection();
+		template<typename RespondFunction>
+		std::optional<std::size_t> Request(Request const& Request, RespondFunction Function)
+			requires(std::is_invocable_v<RespondFunction, Respond>)
+		{
+			return {};
+		}
 	};
 
 
