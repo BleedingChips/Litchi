@@ -6,7 +6,7 @@ namespace Litchi
 {
 
 	
-
+	/*
 	struct Http11Angency : protected Tcp::SocketAngency
 	{
 
@@ -41,6 +41,7 @@ namespace Litchi
 
 		std::u8string Host;
 	};
+	*/
 
 
 	/*
