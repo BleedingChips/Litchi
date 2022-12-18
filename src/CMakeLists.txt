@@ -5,6 +5,7 @@ add_library(
 	STATIC
 	LitchiHttpConnect.cpp
 	LitchiSocketConnect.cpp
+	LitchiContext.cpp
 )
 
 target_compile_features(Litchi PUBLIC cxx_std_23)

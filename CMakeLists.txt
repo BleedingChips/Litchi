@@ -17,6 +17,8 @@ add_library(asio INTERFACE)
 
 target_include_directories(asio INTERFACE ${asio_SOURCE_DIR}/asio/include/)
 
+target_compile_definitions(asio INTERFACE ASIO_NO_DEPRECATED)
+
 message(STATUS "Make asio-1-24-0.zip As Asion Implement")
 
 endif()

@@ -1,11 +1,49 @@
 #pragma once
 #include "LitchiSocketConnect.h"
-#include "Potato/PotatoMisc.h"
-#include "Potato/PotatoIntrusivePointer.h"
 #include <map>
 #include <optional>
 namespace Litchi
 {
+
+	
+
+	struct Http11Angency : protected Tcp::SocketAngency
+	{
+
+		enum class RequestMethod
+		{
+			GET,
+			POST,
+		};
+
+		struct Request
+		{
+			RequestMethod Methos;
+			std::u8string_view Target;
+			std::u8string Cookie;
+		};
+
+		auto Connection(std::u8string_view Host) -> std::future<std::error_code>;
+		auto Close() -> std::future<bool>;
+
+		template<typename RespondFunc>
+		void Request();
+
+	private:
+		
+		std::mutex SendMutex;
+		std::vector<std::byte> TemporarySendRequest;
+		Potato::Misc::IndexSpan<> SendRequestIndex;
+		std::array<std::byte, 1024> CurrentSendRequest;
+		std::size_t SendIte;
+
+		std::array<std::byte, 1024> DefaultBuffer;
+
+		std::u8string Host;
+	};
+
+
+	/*
 	struct HttpConnection11 : protected TcpSocketConnection
 	{
 		bool Connection(std::u8string_view Host, uint16_t Ports = 80);
@@ -50,6 +88,6 @@ namespace Litchi
 			return {};
 		}
 	};
-
+	*/
 
 }

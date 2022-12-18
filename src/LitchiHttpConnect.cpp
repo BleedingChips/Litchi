@@ -2,6 +2,7 @@
 
 namespace Litchi
 {
+	/*
 	bool HttpConnection11::Connection(std::u8string_view Host, uint16_t Ports = 80)
 	{
 		if (TcpSocketConnection::Connect(Host, u8"http"))
@@ -11,4 +12,5 @@ namespace Litchi
 		}
 		return false;
 	}
+	*/
 }
