@@ -56,7 +56,7 @@ int main()
 			std::optional<std::size_t> TotalCount;
 
 			Ptr->Recive(CurSpan, [&](std::error_code EC, SocketAngency<>::ReciveResult EE) mutable -> bool {
-				if (EC)
+				if (!EC)
 				{
 					if (TotalCount.has_value())
 					{
@@ -70,7 +70,7 @@ int main()
 							return true;
 					}
 					else {
-
+						//Content-Length: \r\n;
 						//std::u8string_view Str{ reinterpret_cast<char8_t*>(CurSpan.data()), EE.TotalRead };
 						//auto Index = Str.find(u8"");
 					}

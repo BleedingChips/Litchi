@@ -196,7 +196,7 @@ namespace Litchi
 					TThis->Socket.async_read_some(asio::mutable_buffer{ PersistenceBuffer.data(), PersistenceBuffer.size() }, [This = std::move(This), PersistenceBuffer, LastReadCount, Func = std::move(Func)](std::error_code EC, std::size_t ReadedCount) mutable {
 						if (!EC)
 						{
-							if (Func(EC, ReciveResult{ ReadedCount, ReadedCount + LastReadCount }))
+							if (Func(EC, ReciveResult{ ReadedCount, ReadedCount + LastReadCount }) && PersistenceBuffer.size() > ReadedCount)
 							{
 								SocketAngency::ReciveExecute(ReadedCount + LastReadCount, std::move(This), PersistenceBuffer.subspan(ReadedCount), std::move(Func));
 							}
