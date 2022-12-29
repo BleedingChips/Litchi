@@ -1,22 +1,38 @@
 #include "Litchi/LitchiContext.h"
 #include "Litchi/LitchiSocketConnect.h"
+#include "Litchi/LitchiHttpConnect.h"
 #include "Potato/PotatoStrEncode.h"
 #include "Potato/PotatoDocument.h"
 #include <chrono>
 #include <iostream>
 
 using namespace Litchi;
-using namespace Litchi::Tcp;
-
 int main()
 {
+
+	Context::MulityThreadAgency<> Context{1};
+
+	auto ResPtr = TcpResolver::Create(Context.GetIOContext());
+
+	Http11::RequestT Re;
+
+	auto Re2 = Http11::TranslateRequest(Re, u8"www.baidu.com");
+
+	volatile int i = 0;
+
+	
+
+	std::this_thread::sleep_for(std::chrono::seconds{20});
+
+	volatile int o = 0;
+
 	/*
-	auto Http = HttpConnection::Create(u8"www.baidu.com", 80);
-	*/
 	{
 		Context Context;
 		//std::this_thread::sleep_for(std::chrono::seconds{1});
 		auto Ptr = SocketAngency<>::Create(Context.GetIOContext());
+
+		//Ptr->Socke
 
 		{
 			std::promise<std::error_code> Pro1;
@@ -111,7 +127,7 @@ int main()
 		*/
 
 
-		volatile int i = 0;
-	}
+		//volatile int i = 0;
+	//}
 	return 0;
 }

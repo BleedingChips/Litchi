@@ -27,11 +27,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 	add_subdirectory("../Potato" "Potato")
 endif()
 
-add_library(Litchi INTERFACE)
-
-target_include_directories(Litchi INTERFACE "./include/")
-target_link_libraries(Litchi INTERFACE asio)
-target_link_libraries(Litchi INTERFACE Potato)
+add_subdirectory("src")
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 	add_subdirectory("test")
