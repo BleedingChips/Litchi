@@ -1,6 +1,7 @@
 #pragma once
 #include "LitchiContext.h"
 #include "asio/ip/tcp.hpp"
+#include "asio/io_context_strand.hpp"
 #include "asio/error_code.hpp"
 #include <string_view>
 #include <array>
@@ -77,6 +78,20 @@ namespace Litchi
 	{
 		using EndPointT = asio::ip::tcp::endpoint;
 
+		struct SendRequestT
+		{
+			std::span<std::byte const> SendBuffer;
+			std::function<void(std::error_code, std::size_t)> RespondFunction;
+		};
+
+		struct ReceiveRequestT
+		{
+			std::span<std::byte> ReceiveBuffer;
+			std::function<std::optional<std::span<std::byte>>(std::size_t)> ReallocateFunction;
+			std::function<void(std::error_code, std::size_t)> RespondFunction;
+		};
+
+
 		struct Agency : IntrusiveObjInterface
 		{
 			using PtrT = IntrusivePtr<Agency>;
@@ -85,132 +100,230 @@ namespace Litchi
 
 			template<typename RespondFunction>
 			auto Connect(EndPointT EP, RespondFunction Func) -> bool
-				requires(std::is_invocable_v<RespondFunction, std::error_code>)
+				requires(std::is_invocable_v<RespondFunction, std::error_code, EndPointT>)
 			{
+				auto lg = std::lock_guard(SocketMutex);
+				if (!IsConnecting && !IsSending && !IsReceiving)
 				{
-					auto lg = std::lock_guard(SocketMutex);
-					if (!IsConnecting)
-					{
-						IsConnecting = true;
-						Socket.async_connect(EP, [This = PtrT{ this }, Func = std::move(Func)](std::error_code EC) mutable {
-							{
-								assert(This);
-								auto lg = std::lock_guard(This->SocketMutex);
-								This->IsConnecting = false;
-							}
-							Func(EC);
-						});
-						return true;
-					}
+					IsConnecting = true;
+					Agency::ConnectExecute(PtrT{ this }, EP, {}, std::move(Func));
+					return true;
 				}
-				Func(asio::error::in_progress);
+				auto Temp = [Func = std::move(Func)]() {
+					Func(asio::error::in_progress, {});
+				};
+				Strand.post(std::move(Temp), std::allocator<decltype(Temp)>{});
 				return false;
 			}
 
+			template<typename RespondFunction>
+			auto Connect(std::u8string_view Host, std::u8string_view Service, RespondFunction Func) -> bool
+				requires(std::is_invocable_v<RespondFunction, std::error_code, EndPointT>)
+			{
+				auto lg = std::lock_guard(SocketMutex);
+				if (!IsConnecting && !IsSending && !IsReceiving)
+				{
+					IsConnecting = true;
+					Resolver = TcpResolver::Create(Strand.context());
+					Resolver->Resolve(Host, Service, [This = PtrT{ this }, Func = std::move(Func)](std::error_code EC, TcpResolver::ResultT RR) mutable {
+						assert(This);
+						Agency* TThis = This.GetPointer();
+						{
+							auto lg = std::lock_guard(TThis->SocketMutex);
+							TThis->Resolver.Reset();
+							if (!EC && RR.size() >= 1)
+							{
+								std::vector<EndPointT> EndPoints;
+								EndPoints.resize(RR.size() - 1);
+								auto Ite = RR.begin();
+								auto Top = *Ite;
+								for (++Ite; Ite != RR.end(); ++Ite)
+									EndPoints.push_back(*Ite);
+								std::reverse(EndPoints.begin(), EndPoints.end());
+								Agency::ConnectExecute(std::move(This), std::move(Top), std::move(EndPoints), std::move(Func));
+								return;
+							}
+						}
+						Func(EC, {});
+					});
+					return true;
+				}
+				auto Temp = [Func = std::move(Func)]() mutable {
+					Func(asio::error::in_progress, {});
+				};
+				Strand.post(std::move(Temp), std::allocator<decltype(Temp)>{});
+				return false;
+			}
+				
 			template<typename RespondFunction>
 			auto Send(std::span<std::byte const> PersistenceBuffer, RespondFunction Func) -> bool
 				requires(std::is_invocable_v<RespondFunction, std::error_code, std::size_t>)
 			{
+				auto lg = std::lock_guard(SocketMutex);
+				if (!IsConnecting && !IsSending)
 				{
-					auto lg = std::lock_guard(SocketMutex);
-					if (!IsSending)
-					{
-						IsSending = true;
-						Agency::SendExecute(0, PtrT{ this }, PersistenceBuffer, std::move(Func));
-						return true;
-					}
+					IsSending = true;
+					Agency::SendExecute(0, PtrT{ this }, PersistenceBuffer, std::move(Func));
+					return true;
 				}
-				Func(asio::error::in_progress, 0);
+				auto Temp = [Func = std::move(Func)]() mutable {
+					Func(asio::error::operation_aborted, 0);
+				};
+				Strand.post(std::move(Temp), std::allocator<decltype(Temp)>{});
 				return false;
 			}
 
-			struct ReceiveT
-			{
-				std::size_t CurrentLength = 0;
-				std::size_t TotalLength = 0;
-			};
-
-			template<typename DetectFunction, typename RespondFunction>
-			auto Receive(std::span<std::byte> PersistenceBuffer, DetectFunction DF, RespondFunction RF) -> bool
+			template<typename ProtocolFunction, typename RespondFunction>
+			auto FlexibleReceive(ProtocolFunction PF, RespondFunction Func) -> bool
 				requires(
-					std::is_invocable_r_v<std::optional<std::span<std::byte>>, DetectFunction, ReceiveT> &&
-					std::is_invocable_v<RespondFunction, std::error_code, ReceiveT>
-				)
+					std::is_invocable_r_v<std::optional<std::size_t>, ProtocolFunction, std::span<std::byte const>>
+					&& std::is_invocable_v<RespondFunction, std::error_code, std::span<std::byte>>
+					)
 			{
+				auto lg = std::lock_guard(SocketMutex);
+				if (!IsConnecting && !IsReceiving)
 				{
-					auto lg = std::lock_guard(SocketMutex);
-					if (!IsReceiving)
-					{
-						IsReceiving = true;
-						Agency::ReceiveExecute(0, PtrT{ this }, PersistenceBuffer, std::move(DF), std::move(RF));
-						return true;
-					}
+					IsSending = true;
+					Agency::FlexibleReceiveProtocolExecute(1024, 0, PtrT{ this }, std::move(PF), std::move(Func));
+					return true;
 				}
-				RF(asio::error::in_progress, {0, 0});
+				auto Temp = [Func = std::move(Func)]() mutable {
+					Func(asio::error::operation_aborted, {});
+				};
+				Strand.post(std::move(Temp), std::allocator<decltype(Temp)>{});
 				return false;
 			}
+
+			void Cancle();
+			void Close();
+
 
 		protected:
 
 			template<typename RespondFunction>
-			static auto SendExecute(std::size_t LastWrited, PtrT This, std::span<std::byte const> PersistenceBuffer, RespondFunction Func) -> void
+			static auto ConnectExecute(PtrT This, EndPointT CurEndPoint, std::vector<EndPointT> EndPoints, RespondFunction Func) -> void
 			{
 				assert(This);
-				auto TThis = This.GetPointer();
-				TThis->Socket.async_write_some(
-					asio::const_buffer{ PersistenceBuffer.data(), PersistenceBuffer.size()}, 
-					[This = std::move(This), PersistenceBuffer, Func = std::move(Func), LastWrited](std::error_code EC, std::size_t WritedBuffer) mutable {
-						assert(This);
-						if (!EC && PersistenceBuffer.size() < WritedBuffer)
+				Agency* TThis = This.GetPointer();
+				TThis->Socket.async_connect(CurEndPoint, [CurEndPoint, This = std::move(This), EndPoints = std::move(EndPoints), Func = std::move(Func)](std::error_code EC) mutable {
+					if (EC && EC != asio::error::operation_aborted && !EndPoints.empty())
+					{
+						auto Top = std::move(*EndPoints.rbegin());
+						EndPoints.pop_back();
+						auto lg = std::lock_guard(This->SocketMutex);
+						Agency::ConnectExecute(std::move(This), std::move(Top), std::move(EndPoints), std::move(Func));
+					}
+					else {
 						{
 							auto lg = std::lock_guard(This->SocketMutex);
-							Agency::SendExecute(LastWrited + WritedBuffer, std::move(This), PersistenceBuffer.subspan(WritedBuffer), std::move(Func));
+							This->IsConnecting = false;
+						}
+						Func(EC, CurEndPoint);
+					}
+				});
+			}
+
+
+			void CancelSendReceiveExecute();
+
+			template<typename RespondFunction>
+			static void SendExecute(std::size_t TotalWrite, PtrT This, std::span<std::byte const> Buffer, RespondFunction Func)
+			{
+				assert(This);
+				Agency* TThis = This.GetPointer();
+				TThis->Socket.async_write_some(asio::const_buffer{ Buffer.data(), Buffer.size()}, 
+					[This = std::move(This), Buffer, TotalWrite, Func = std::move(Func)](std::error_code EC, std::size_t Writed) mutable {
+						if (!EC && Writed < Buffer.size())
+						{
+							auto lg = std::lock_guard(This->SocketMutex);
+							Agency::SendExecute(TotalWrite + Writed, std::move(This), Buffer.subspan(Writed), std::move(Func));
 						}
 						else {
 							{
 								auto lg = std::lock_guard(This->SocketMutex);
-								assert(This->IsSending);
 								This->IsSending = false;
 							}
-							Func(EC, LastWrited + WritedBuffer);
+							Func(EC, TotalWrite + Writed);
 						}
-					});
+				});
 			}
 
-			template<typename DetectFunction, typename RespondFunction>
-			static auto ReceiveExecute(std::size_t LastReceive, PtrT This, std::span<std::byte> PersistenceBuffer, DetectFunction DFunc, RespondFunction Func)
+			template<typename ProtocolFunction, typename RespondFunction>
+			static void FlexibleReceiveProtocolExecute(std::size_t CacheSize, std::size_t LastReadSize, PtrT This, ProtocolFunction PF, RespondFunction Func)
 			{
 				assert(This);
-				auto TThis = This.GetPointer();
-				TThis->Socket.async_read_some(asio::mutable_buffer{ PersistenceBuffer.data(), PersistenceBuffer.size()}, 
-					[This = std::move(This), LastReceive, DFunc = std::move(DFunc), Func = std::move(Func)](std::error_code EC, std::size_t Received) mutable {
-						if (!EC)
-						{
-							auto Ter = DFunc({ Received, LastReceive + Received });
-							if (Ter.has_value())
-							{
-								auto lg = std::lock_guard(This->SocketMutex);
-								Agency::ReceiveExecute(LastReceive, std::move(This), *Ter, std::move(DFunc), std::move(Func));
-								return;
-							}
-						}
+				Agency* TThis = This.GetPointer();
+				TThis->ReceiveBuffer.clear();
+				TThis->ReceiveBuffer.resize(CacheSize);
+				TThis->Socket.async_receive(
+					asio::mutable_buffer{ TThis->ReceiveBuffer.data(), CacheSize },
+					asio::ip::tcp::socket::message_peek,
+					[CacheSize, LastReadSize, This = std::move(This), PF = std::move(PF), Func = std::move(Func)](std::error_code EC, std::size_t ReadSize) mutable {
+						if (!EC && ReadSize != LastReadSize)
 						{
 							auto lg = std::lock_guard(This->SocketMutex);
-							assert(This->IsReceiving);
-							This->IsReceiving = false;
+							This->ReceiveBuffer.resize(ReadSize);
+							auto PFSize = PF(std::span(This->ReceiveBuffer));
+							This->ReceiveBuffer.clear();
+							if (PFSize.has_value())
+							{
+								This->ReceiveBuffer.resize(*PFSize);
+								auto TThis = This.GetPointer();
+								Agency::ReceiveExecute(std::span(TThis->ReceiveBuffer), std::span(TThis->ReceiveBuffer), std::move(This), std::move(Func));
+							}
+							else {
+								Agency::FlexibleReceiveProtocolExecute(CacheSize * 2, ReadSize, std::move(This), std::move(PF), std::move(Func));
+							}
 						}
-						Func(EC, { Received, LastReceive + Received });
+						else {
+							{
+								auto lg = std::lock_guard(This->SocketMutex);
+								This->IsReceiving = false;
+							}
+							if(!EC && ReadSize == LastReadSize)
+								Func(asio::error::no_protocol_option, {});
+							else
+								Func(EC, {});
+						}
 					}
 				);
 			}
 
-			Agency(asio::io_context& Context) : Socket(Context) {}
+			template<typename RespondFunction>
+			static void ReceiveExecute(std::span<std::byte> TotalBuffer, std::span<std::byte> IteBuffer, PtrT This, RespondFunction Func)
+			{
+				assert(This);
+				Agency* TThis = This.GetPointer();
+				TThis->Socket.async_read_some(asio::mutable_buffer{ IteBuffer.data(), IteBuffer.size()},
+					[TotalBuffer, IteBuffer, This = std::move(This), Func = std::move(Func)](std::error_code EC, std::size_t Readed) mutable {
+						if (!EC && IteBuffer.size() > Readed)
+						{
+							auto lg = std::lock_guard(This->SocketMutex);
+							Agency::ReceiveExecute(TotalBuffer, IteBuffer.subspan(Readed), std::move(This), std::move(Func));
+						}
+						else {
+							{
+								auto lg = std::lock_guard(This->SocketMutex);
+								This->IsReceiving = false;
+							}
+							Func(EC, TotalBuffer.subspan(0, TotalBuffer.size() + Readed - IteBuffer.size() ));
+						}
+					}
+				);
+			}
+
+			Agency(asio::io_context& Context) : Socket(Context), Strand(Context) {}
 
 			std::mutex SocketMutex;
+			asio::ip::tcp::socket Socket;
+			asio::io_context::strand Strand;
+
 			bool IsConnecting = false;
+			TcpResolver::PtrT Resolver;
 			bool IsSending = false;
 			bool IsReceiving = false;
-			asio::ip::tcp::socket Socket;
+
+			std::vector<std::byte> ReceiveBuffer;
 			
 			friend class TcpSocket;
 		};

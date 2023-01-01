@@ -12,122 +12,39 @@ int main()
 
 	Context::MulityThreadAgency<> Context{1};
 
-	auto ResPtr = TcpResolver::Create(Context.GetIOContext());
+	auto HttpPtr = Http11::Create(Context.GetIOContext());
 
 	Http11::RequestT Re;
 
 	auto Re2 = Http11::TranslateRequest(Re, u8"www.baidu.com");
 
+	std::promise<void> Pro;
+
+	auto Fur = Pro.get_future();
+
+	HttpPtr->Connect(u8"www.baidu.com", [&](std::error_code, TcpSocket::EndPointT EP){ Pro.set_value(); });
+
+	Fur.get();
+
+	std::promise<Http11::RespondT> Pro2;
+
+	auto Fur2 = Pro2.get_future();
+
+	HttpPtr->Send(Re, [&](std::error_code EC, std::size_t){
+		if (!EC)
+		{
+			HttpPtr->Receive([&](std::error_code EC, Http11::RespondT Res){Pro2.set_value(std::move(Res));});
+		}else
+			Pro2.set_value({});
+	});
+
+	auto P22 = Fur2.get();
+
+	Potato::Document::Writer Wri(u8"asdasd.txt");
+	Wri.Write(P22.Respond);
+	Wri.Flush();
+
 	volatile int i = 0;
 
-	
-
-	std::this_thread::sleep_for(std::chrono::seconds{20});
-
-	volatile int o = 0;
-
-	/*
-	{
-		Context Context;
-		//std::this_thread::sleep_for(std::chrono::seconds{1});
-		auto Ptr = SocketAngency<>::Create(Context.GetIOContext());
-
-		//Ptr->Socke
-
-		{
-			std::promise<std::error_code> Pro1;
-			auto Fur = Pro1.get_future();
-			Ptr->Connect(u8"www.baidu.com", u8"http", [&](std::error_code EC, SocketAngency<>::EndPointT) {
-				Pro1.set_value(EC);
-				});
-
-			auto Re = Fur.get();
-		}
-
-		std::u8string_view Request = u8"GET / HTTP/1.1\r\nHost: www.baidu.com\r\n\r\n";
-
-		{
-			std::promise<std::error_code> Pro1;
-			auto Fur = Pro1.get_future();
-
-			auto RSpan = std::span(Request);
-			std::span<std::byte const> TRSpan{ reinterpret_cast<std::byte const*>(RSpan.data()), RSpan.size() * sizeof(char8_t) };
-
-			Ptr->Send(TRSpan, [&](std::error_code SR) mutable {
-				Pro1.set_value(SR);
-			});
-
-			auto Re = Fur.get();
-		}
-		
-		
-		{
-			std::array<std::byte, 102400> TemBuffer;
-
-			std::promise<std::u8string_view> Pro;
-			auto Fur = Pro.get_future();
-
-			auto CurSpan = std::span(TemBuffer);
-
-			std::optional<std::size_t> TotalCount;
-
-			Ptr->Recive(CurSpan, [&](std::error_code EC, SocketAngency<>::ReciveResult EE) mutable -> bool {
-				if (!EC)
-				{
-					if (TotalCount.has_value())
-					{
-						if (EE.TotalRead >= *TotalCount)
-						{
-							std::u8string_view Str{ reinterpret_cast<char8_t*>(CurSpan.data()), EE.TotalRead };
-							Pro.set_value(Str);
-							return false;
-						}
-						else
-							return true;
-					}
-					else {
-						//Content-Length: \r\n;
-						//std::u8string_view Str{ reinterpret_cast<char8_t*>(CurSpan.data()), EE.TotalRead };
-						//auto Index = Str.find(u8"");
-					}
-				}
-				else {
-					std::u8string_view Str{ reinterpret_cast<char8_t*>(CurSpan.data()), EE.TotalRead };
-					Pro.set_value(Str);
-					return false;
-				}
-				
-				return true;
-				
-				//Str.find(u8"")
-
-				//Pro.set_value(std::u8string_view{ reinterpret_cast<char8_t*>(CurSpan.data()), WC });
-			});
-
-			auto Re233 = Fur.get();
-
-			Potato::Document::Writer Write(u8"HTTPOut.txt");
-			Write.Write(Re233);
-			Write.Flush();
-		}
-
-		
-
-		//auto Info = Potato::StrEncode::StrEncoder<char8_t, wchar_t>::RequireSpace(Re233);
-
-		/*
-		
-		*/
-
-		/*
-		std::wstring Buffer;
-		Buffer.resize(Info.TargetSpace);
-		Potato::StrEncode::StrEncoder<char8_t, wchar_t>::EncodeUnSafe(Re233, Buffer, Info.CharacterCount);
-		std::wcout << Buffer << std::endl;
-		*/
-
-
-		//volatile int i = 0;
-	//}
 	return 0;
 }
