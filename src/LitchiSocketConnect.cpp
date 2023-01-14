@@ -10,7 +10,7 @@ namespace Litchi
 			auto lg = std::lock_guard(SocketMutex);
 			if (AbleToConnect())
 			{
-				this->AsyncConnect(std::move(EP), [&](std::error_code& EC, EndPointT, Agency&){
+				this->AsyncConnect(std::move(EP), [&](std::error_code const& EC, EndPointT, Agency&){
 					Promise.set_value(EC);
 				});
 				return Fur.get();
@@ -30,7 +30,7 @@ namespace Litchi
 			auto lg = std::lock_guard(SocketMutex);
 			if (AbleToConnect())
 			{
-				this->AsyncConnect(Host, Service, [&](std::error_code& EC, EndPointT EP, Agency&) {
+				this->AsyncConnect(Host, Service, [&](std::error_code const& EC, EndPointT EP, Agency&) {
 					Promise.set_value({EC, std::move(EP)});
 				});
 			}

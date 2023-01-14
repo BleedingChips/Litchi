@@ -25,35 +25,35 @@ namespace Litchi
 
 			template<typename RespondFunction>
 			auto Connect(EndPointT EP, RespondFunction Func) -> bool
-				requires(std::is_invocable_v<RespondFunction, std::error_code&, EndPointT, Agency&>)
+				requires(std::is_invocable_v<RespondFunction, std::error_code const&, EndPointT, Agency&>)
 			{
 				return Socket->AsyncConnect(EP, std::move(Func));
 			}
 
 			template<typename RespondFunction>
 			auto Connect(std::u8string_view Host, std::u8string_view Service, RespondFunction Func) -> bool
-				requires(std::is_invocable_v<RespondFunction, std::error_code&, EndPointT, Agency&>)
+				requires(std::is_invocable_v<RespondFunction, std::error_code const&, EndPointT, Agency&>)
 			{
 				return Socket->AsyncConnect(Host, Service, std::move(Func));
 			}
 				
 			template<typename RespondFunction>
 			auto Send(std::span<std::byte const> PersistenceBuffer, RespondFunction Func) -> bool
-				requires(std::is_invocable_v<RespondFunction, std::error_code&, std::size_t, Agency&>)
+				requires(std::is_invocable_v<RespondFunction, std::error_code const&, std::size_t, Agency&>)
 			{
 				return Socket->AsyncSend(PersistenceBuffer, std::move(Func));
 			}
 
 			template<typename RespondFunction>
 			auto ReceiveSome(std::span<std::byte const> PersistenceBuffer, RespondFunction Func) -> bool
-				requires(std::is_invocable_v<RespondFunction, std::error_code&, std::size_t, Agency&>)
+				requires(std::is_invocable_v<RespondFunction, std::error_code const&, std::size_t, Agency&>)
 			{
 				return Socket->AsyncReceiveSome(PersistenceBuffer, std::move(Func));
 			}
 
 			template<typename RespondFunction>
 			auto Receive(std::span<std::byte const> PersistenceBuffer, RespondFunction Func) -> bool
-				requires(std::is_invocable_v<RespondFunction, std::error_code&, std::size_t, Agency&>)
+				requires(std::is_invocable_v<RespondFunction, std::error_code const&, std::size_t, Agency&>)
 			{
 				return Socket->AsyncReceive(PersistenceBuffer, std::move(Func));
 			}
@@ -93,7 +93,7 @@ namespace Litchi
 
 		template<typename RespondFunc>
 		auto AsyncConnect(EndPointT EP, RespondFunc Fun) -> bool
-			requires(std::is_invocable_v<RespondFunc, std::error_code&, EndPointT, Agency&>)
+			requires(std::is_invocable_v<RespondFunc, std::error_code const&, EndPointT, Agency&>)
 		{
 			if (AbleToConnect())
 			{
@@ -106,7 +106,7 @@ namespace Litchi
 
 		template<typename RespondFunc>
 		auto AsyncConnect(std::u8string_view Host, std::u8string_view Service, RespondFunc Func) -> bool
-			requires(std::is_invocable_v<RespondFunc, std::error_code&, EndPointT, Agency&>)
+			requires(std::is_invocable_v<RespondFunc, std::error_code const&, EndPointT, Agency&>)
 		{
 			if (AbleToConnect())
 			{
@@ -114,7 +114,7 @@ namespace Litchi
 				Resolver.async_resolve(
 					std::string_view{ reinterpret_cast<char const*>(Host.data()), Host.size() },
 					std::string_view{ reinterpret_cast<char const*>(Service.data()), Service.size() },
-					[This = PtrT{ this }, Func = std::move(Func)](std::error_code EC, ResolverT RR) mutable {
+					[This = PtrT{ this }, Func = std::move(Func)](std::error_code const& EC, ResolverT RR) mutable {
 						assert(This);
 						if (!EC && RR.size() >= 1)
 						{
@@ -145,7 +145,7 @@ namespace Litchi
 
 		template<typename RespondFunc>
 		auto AsyncSend(std::span<std::byte const> PersistenceBuffer, RespondFunc Func) -> bool
-			requires(std::is_invocable_v<RespondFunc, std::error_code&, std::size_t, Agency&>)
+			requires(std::is_invocable_v<RespondFunc, std::error_code const&, std::size_t, Agency&>)
 		{
 			if (AbleToSend())
 			{
@@ -158,17 +158,18 @@ namespace Litchi
 
 		template<typename RespondFunc>
 		auto AsyncReceiveSome(std::span<std::byte> PersistenceBuffer, RespondFunc Func) -> bool
-			requires(std::is_invocable_v<RespondFunc, std::error_code&, std::size_t, Agency&>)
+			requires(std::is_invocable_v<RespondFunc, std::error_code const&, std::size_t, Agency&>)
 		{
 			if (AbleToReceive())
 			{
 				Receiving = true;
 				Socket.async_read_some(
-					{ PersistenceBuffer.data(), PersistenceBuffer .size()},
-					[Func = std::move(Func), This = PtrT{this}](std::error_code& EC, std::size_t Readed) {
+					asio::mutable_buffer{ PersistenceBuffer.data(), PersistenceBuffer .size()},
+					[Func = std::move(Func), This = PtrT{this}](std::error_code const& EC, std::size_t Readed) mutable {
 						auto lg = std::lock_guard(This->SocketMutex);
 						This->Receiving = false;
-						Func(EC, Readed, Agency{ This .GetPointer()});
+						Agency Age{ This.GetPointer() };
+						Func(EC, Readed, Age);
 					}
 				);
 				return true;
@@ -178,7 +179,7 @@ namespace Litchi
 
 		template<typename RespondFunc>
 		auto AsyncReceive(std::span<std::byte> PersistenceBuffer, RespondFunc Func) -> bool
-			requires(std::is_invocable_v<RespondFunc, std::error_code&, std::size_t, Agency&>)
+			requires(std::is_invocable_v<RespondFunc, std::error_code const&, std::size_t, Agency&>)
 		{
 			if (AbleToReceive())
 			{
@@ -216,7 +217,7 @@ namespace Litchi
 		{
 			assert(This);
 			TcpSocket* TThis = This.GetPointer();
-			TThis->Socket.async_connect(CurEndPoint, [CurEndPoint, This = std::move(This), EndPoints = std::move(EndPoints), Func = std::move(Func)](std::error_code EC) mutable {
+			TThis->Socket.async_connect(CurEndPoint, [CurEndPoint, This = std::move(This), EndPoints = std::move(EndPoints), Func = std::move(Func)](std::error_code const& EC) mutable {
 				if (EC && EC != asio::error::operation_aborted && !EndPoints.empty())
 				{
 					auto Top = std::move(*EndPoints.rbegin());
@@ -239,7 +240,7 @@ namespace Litchi
 			assert(This);
 			TcpSocket* TThis = This.GetPointer();
 			TThis->Socket.async_write_some(asio::const_buffer{ Buffer.data(), Buffer.size() },
-				[This = std::move(This), Buffer, TotalWrite, Func = std::move(Func)](std::error_code& EC, std::size_t Writed) mutable {
+				[This = std::move(This), Buffer, TotalWrite, Func = std::move(Func)](std::error_code const& EC, std::size_t Writed) mutable {
 					if (!EC && Writed < Buffer.size())
 					{
 						auto lg = std::lock_guard(This->SocketMutex);
@@ -248,7 +249,8 @@ namespace Litchi
 					else {
 						auto lg = std::lock_guard(This->SocketMutex);
 						This->Sending = false;
-						Func(EC, TotalWrite + Writed, Agency{This.GetPointer()});
+						Agency Age{ This.GetPointer() };
+						Func(EC, TotalWrite + Writed, Age);
 					}
 				}
 			);
@@ -260,7 +262,7 @@ namespace Litchi
 			assert(This);
 			TcpSocket* TThis = This.GetPointer();
 			TThis->Socket.async_read_some(asio::mutable_buffer{ IteBuffer.data(), IteBuffer.size() },
-				[TotalSize, IteBuffer, This = std::move(This), Func = std::move(Func)](std::error_code& EC, std::size_t Readed) mutable {
+				[TotalSize, IteBuffer, This = std::move(This), Func = std::move(Func)](std::error_code const& EC, std::size_t Readed) mutable {
 					if (!EC && IteBuffer.size() > Readed)
 					{
 						auto lg = std::lock_guard(This->SocketMutex);
@@ -269,7 +271,8 @@ namespace Litchi
 					else {
 						auto lg = std::lock_guard(This->SocketMutex);
 						This->Receiving = false;
-						Func(EC, TotalSize + Readed, Agency{This.GetPointer()});
+						Agency Age{ This.GetPointer() };
+						Func(EC, TotalSize + Readed, Age);
 					}
 				}
 			);

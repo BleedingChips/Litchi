@@ -12,39 +12,59 @@ int main()
 
 	Context::MulityThreadAgency<> Context{1};
 
-	auto HttpPtr = Http11::Create(Context.GetIOContext());
+	using Http = Http11Client;
 
-	Http11::RequestT Re;
+	auto HttpPtr = Http::Create(Context.GetIOContext());
 
-	auto Re2 = Http11::TranslateRequest(Re, u8"www.baidu.com");
+	std::u8string Head;
+	std::u8string HeadContent;
+	std::vector<std::byte> ChunkedContent;
 
-	std::promise<void> Pro;
+	std::promise<void> Promise;
+	std::future<void> Fur = Promise.get_future();
 
-	auto Fur = Pro.get_future();
 
-	HttpPtr->Connect(u8"www.baidu.com", [&](std::error_code, TcpSocket::EndPointT EP){ Pro.set_value(); });
+	HttpPtr->SyncConnect(u8"www.baidu.com");
+
+	HttpPtr->Lock([&](Http::Agency& Age){
+		Age.Send({}, [&](std::error_code const& EC, Http::Agency& Age){
+			if (!EC)
+			{
+				Age.Receive([&](std::error_code const& EC, Http::SectionT Section, std::span<std::byte const> Buffer, Http::Agency&){
+					std::cout << Buffer.size() << std::endl;
+					switch (Section)
+					{
+					case Http::SectionT::Head:
+						Head = std::u8string{reinterpret_cast<char8_t const*>(Buffer.data()), Buffer.size() / sizeof(char8_t)};
+						break;
+					case Http::SectionT::HeadContent:
+						HeadContent = std::u8string{ reinterpret_cast<char8_t const*>(Buffer.data()), Buffer.size() / sizeof(char8_t) };
+						break;
+					case Http::SectionT::ChunkedContent:
+						ChunkedContent.insert(ChunkedContent.end(), Buffer.begin(), Buffer.end());
+						break;
+					case Http::SectionT::Finish:
+						Promise.set_value();
+						break;
+					}
+				});
+			}
+			else {
+				Promise.set_value();
+			}
+		});
+	});
 
 	Fur.get();
 
-	std::promise<Http11::RespondT> Pro2;
-
-	auto Fur2 = Pro2.get_future();
-
-	HttpPtr->Send(Re, [&](std::error_code EC, std::size_t){
-		if (!EC)
-		{
-			HttpPtr->Receive([&](std::error_code EC, Http11::RespondT Res){Pro2.set_value(std::move(Res));});
-		}else
-			Pro2.set_value({});
-	});
-
-	auto P22 = Fur2.get();
-
-	Potato::Document::Writer Wri(u8"asdasd.txt");
-	Wri.Write(P22.Respond);
+	Potato::Document::Writer Wri(u8"Respond.txt");
+	Wri.Write(Head);
+	Wri.Write(HeadContent);
 	Wri.Flush();
 
-	volatile int i = 0;
+	std::ofstream of("ChunkedContent.gz", std::ios::binary);
+	of.write(reinterpret_cast<char*>(ChunkedContent.data()), ChunkedContent.size());
+	of.flush();
 
 	return 0;
 }

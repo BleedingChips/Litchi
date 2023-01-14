@@ -2,9 +2,10 @@ cmake_minimum_required (VERSION 3.20)
 
 project ("Litchi"  VERSION 1.24 LANGUAGES CXX)
 
+include(FetchContent)
+
 if (NOT DEFINED asio_POPULATED)
 
-include(FetchContent)
 FetchContent_Declare(
 	asio
 	URL https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-1-24-0.zip
