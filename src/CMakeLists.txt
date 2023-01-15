@@ -4,8 +4,10 @@ add_library(
 	LitchiLib 
 	STATIC
 	LitchiSocketConnect.cpp
- "LitchiHttpConnect.cpp")
+ "LitchiHttpConnect.cpp" "LitchiCompression.cpp")
 
 target_include_directories(LitchiLib PUBLIC "../include/")
 target_link_libraries(LitchiLib PUBLIC asio)
 target_link_libraries(LitchiLib PUBLIC PotatoLib)
+target_link_libraries(LitchiLib PUBLIC zlibstatic)
+target_link_libraries(LitchiLib PUBLIC minizipstatic)
