@@ -3,6 +3,7 @@
 #include "Litchi/LitchiHttpConnect.h"
 #include "Potato/PotatoStrEncode.h"
 #include "Potato/PotatoDocument.h"
+#include "Litchi/LitchiCompression.h"
 #include <chrono>
 #include <iostream>
 
@@ -65,6 +66,16 @@ int main()
 	std::ofstream of("ChunkedContent.gz", std::ios::binary);
 	of.write(reinterpret_cast<char*>(ChunkedContent.data()), ChunkedContent.size());
 	of.flush();
+
+	std::vector<std::byte> Decompression;
+
+	Litchi::GZipDecompress(ChunkedContent, [&](std::span<std::byte const> Input){
+		Decompression.insert(Decompression.end(), Input.begin(), Input.end());
+	});
+
+	std::ofstream of2("ChunkedContent.html", std::ios::binary);
+	of2.write(reinterpret_cast<char*>(Decompression.data()), Decompression.size());
+	of2.flush();
 
 	return 0;
 }

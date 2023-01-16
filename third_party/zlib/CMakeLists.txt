@@ -16,12 +16,14 @@ add_library(
 	src/infback.c
 	src/inffast.c
 	src/inflate.c
+	src/inftrees.c
 	src/trees.c
 	src/uncompr.c
 	src/zutil.c
 )
 
 target_include_directories(zlibcomplie PUBLIC "include/zlib")
+target_compile_definitions(zlibcomplie PUBLIC ZLIB_CONST)
 
 add_library(zlibstatic INTERFACE)
 
