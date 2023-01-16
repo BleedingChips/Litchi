@@ -3,23 +3,28 @@
 #include <optional>
 namespace Litchi
 {
+	struct GZipDecProperty
+	{
+		std::size_t UnDecompressSize = 0;
+		std::size_t LastOutputSize = 0;
+		std::size_t LastDecompressSize = 0;
+	};
+
 	namespace Implement
 	{
 		std::optional<std::size_t> GZipDecompressImp(
 			std::span<std::byte const> Input,
-			std::span<std::byte> TempOutput,
-			void(*OutputFunction)(void*, std::span<std::byte const>),
+			std::span<std::byte>(*OutputFunction)(void*, GZipDecProperty const&),
 			void* Data
 		);
 	}
 
-	template<std::size_t BufferCache = 2048, typename RespondFun>
+	template<typename RespondFun>
 	std::optional<std::size_t> GZipDecompress(std::span<std::byte const> Input, RespondFun Func)
-		requires(std::is_invocable_v<RespondFun, std::span<std::byte const>>)
+		requires(std::is_invocable_r_v<std::span<std::byte>, RespondFun, GZipDecProperty const&>)
 	{
-		std::array<std::byte, BufferCache> TemporaryBuffer;
-		return Implement::GZipDecompressImp(Input, std::span(TemporaryBuffer), [](void* Data, std::span<std::byte const> InputTemp){
-			(*reinterpret_cast<RespondFun*>(Data))(InputTemp);
+		return Implement::GZipDecompressImp(Input, [](void* Data, GZipDecProperty const& Pro) -> std::span<std::byte>{
+			return (*reinterpret_cast<RespondFun*>(Data))(Pro);
 		}, &Func);
 	}
 }

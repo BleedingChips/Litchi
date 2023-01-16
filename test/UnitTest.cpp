@@ -69,8 +69,15 @@ int main()
 
 	std::vector<std::byte> Decompression;
 
-	Litchi::GZipDecompress(ChunkedContent, [&](std::span<std::byte const> Input){
-		Decompression.insert(Decompression.end(), Input.begin(), Input.end());
+	Litchi::GZipDecompress(ChunkedContent, [&](Litchi::GZipDecProperty const& Pro) -> std::span<std::byte>{
+		Decompression.resize(Decompression.size() - Pro.LastOutputSize + Pro.LastDecompressSize);
+		if (Pro.UnDecompressSize != 0)
+		{
+			auto OldSize = Decompression.size();
+			Decompression.resize(OldSize + std::max(Pro.UnDecompressSize * 3, std::size_t{256}));
+			return std::span(Decompression).subspan(OldSize);
+		}
+		return {};
 	});
 
 	std::ofstream of2("ChunkedContent.html", std::ios::binary);
