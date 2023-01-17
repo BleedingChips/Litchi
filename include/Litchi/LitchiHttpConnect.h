@@ -120,12 +120,12 @@ namespace Litchi
 
 		template<typename RespondFunction>
 		bool AsyncReceive(RespondFunction Func)
-			requires(std::is_invocable_v<RespondFunction, std::error_code const&, SectionT, std::span<std::byte const>, Agency&>)
+			requires(std::is_invocable_r_v<std::span<std::byte>, RespondFunction, std::error_code const&, SectionT, std::span<std::byte const>, Agency&>)
 		{
 			if (AbleToReceive())
 			{
 				ProtocolReceiving = true;
-				this->ReceiveHeadExecute({}, 0, std::move(Func));
+				this->ReceiveHeadExecute(std::move(Func));
 				return true;
 			}
 			return false;
@@ -134,179 +134,167 @@ namespace Litchi
 		using TcpSocket::TcpSocket;
 		bool ProtocolReceiving = false;
 		std::u8string Host;
-		std::vector<std::byte> TemporaryBuffer;
+		Potato::Misc::IndexSpan<> TIndex;
+		std::vector<std::byte> TBuffer;
 
 	private:
-
-		static constexpr std::size_t CacheSize = 2048; 
 		
 		bool AbleToReceive() const { return !ProtocolReceiving && TcpSocket::AbleToReceive(); }
 
-		template<typename RespondFunction>
-		void ReceiveHeadExecute(std::error_code const& LastEC, std::size_t StartOffset, RespondFunction Func)
+		std::span<std::byte> PrepareTBufferForReceive();
+		std::span<std::byte> ConsumeTBuffer(std::size_t MaxSize);
+		std::span<std::byte> ConsumeTBufferTo(std::span<std::byte> Output);
+		void ReceiveTBuffer(std::size_t ReceiveSize);
+		void ClearTBuffer();
+
+		struct HeadR
 		{
-			if (LastEC)
-			{
-				TemporaryBuffer.clear();
-				Agency Age{this};
-				Func(LastEC, SectionT::Finish, {}, Age);
-				return;
-			}
-				
-			auto UsedBuffer = std::span(TemporaryBuffer).subspan(StartOffset);
-			if (!UsedBuffer.empty())
-			{
-				std::u8string_view Head = { reinterpret_cast<char8_t const*>(UsedBuffer.data()), UsedBuffer.size() / sizeof(char8_t)};
-				auto HeadSize = FindHeadSize(Head);
-				if (HeadSize.has_value())
-				{
-					const std::size_t ByteSize = *HeadSize * sizeof(char8_t);
-					Head = Head.substr(0, *HeadSize);
-					if (IsResponseHead(Head))
-					{
-						auto CurSpan = UsedBuffer.subspan(0, ByteSize);
-						Agency Age{this};
-						Func(LastEC, SectionT::Head, CurSpan, Age);
-						if (IsResponseHeadOK(Head))
-						{
-							auto ContentLength = FindHeadContentLength(Head);
-							if (ContentLength.has_value())
-							{
-								this->ReceiveHeadContentExecute(LastEC, StartOffset + ByteSize, *ContentLength, std::move(Func));
-							}
-							else if (IsChunkedContent(Head))
-							{
-								this->ReceiveChunkedContentExecute(LastEC, StartOffset + ByteSize, {}, std::move(Func));
-							}
-							else {
-								TemporaryBuffer.erase(TemporaryBuffer.begin(), TemporaryBuffer.begin() + StartOffset + ByteSize);
-								ProtocolReceiving = false;
-							}
-							return;
-						}
-						Func(LastEC, SectionT::Finish, {}, Age);
-						return;
-					}
-					else {
-						this->ReceiveHeadExecute(LastEC, StartOffset + ByteSize, std::move(Func));
-						return;
-					}
-				}
-				else {
-					TemporaryBuffer.erase(TemporaryBuffer.begin(), TemporaryBuffer.begin() + StartOffset);
-				}
-			}
-			auto OldSize = TemporaryBuffer.size();
-			TemporaryBuffer.resize(OldSize + CacheSize);
-			TcpSocket::AsyncReceiveSome(std::span(TemporaryBuffer).subspan(OldSize), [OldSize, Func = std::move(Func)](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable {
-				Agency HttpAge{Age};
-				HttpAge->TemporaryBuffer.resize(OldSize + Read);
-				if (!EC)
-				{
-					HttpAge->ReceiveHeadExecute(EC, 0, std::move(Func));
-				}
-				else {
-					HttpAge->TemporaryBuffer.clear();
-					HttpAge->ProtocolReceiving = false;
-					Func(EC, SectionT::Finish, {}, HttpAge);
-				}
-			});
-		}
+			std::span<std::byte> HeadData;
+			bool IsOK = false;
+			bool NeedChunkedContent = false;
+			std::optional<std::size_t> HeadContentSize;
+		};
+
+		std::optional<HeadR> ConsumeHead();
+		std::optional<std::size_t> ConsumeChunkedContentSize(bool NeedContentEnd);
+		bool TryConsumeContentEnd();
 
 		template<typename RespondFunction>
-		void ReceiveHeadContentExecute(std::error_code const& LastEC, std::size_t StartOffset, std::size_t ContentLength, RespondFunction Func)
+		void ReceiveHeadExecute(RespondFunction Func)
 		{
-			if (StartOffset + ContentLength <= TemporaryBuffer.size())
+			auto Head = ConsumeHead();
+			if (Head.has_value())
 			{
-				auto Span = std::span(TemporaryBuffer).subspan(StartOffset, ContentLength);
-				Agency HttpAge{this};
-				Func(LastEC, SectionT::HeadContent, Span, HttpAge);
-				TemporaryBuffer.erase(TemporaryBuffer.begin(), TemporaryBuffer.begin() + StartOffset + ContentLength);
+				Agency Age{this};
+				auto Span = Func({}, SectionT::Head, Head->HeadData.size(), Age);
+				std::copy_n(Head->HeadData.begin(), Head->HeadData.size(), Span.begin());
+				if (Head->IsOK)
+				{
+					if (Head->HeadContentSize.has_value())
+					{
+						this->ReceiveHeadContentExecute(*Head->HeadContentSize, std::move(Func));
+						return;
+					}
+					else if (Head->NeedChunkedContent)
+					{
+						this->ReceiveChunkedContentExecute(false, std::move(Func));
+						return;
+					}
+				}
 				ProtocolReceiving = false;
-				Func(LastEC, SectionT::Finish, Span, HttpAge);
+				Func({}, SectionT::Finish, 0, Age);
 				return;
 			}
 			else {
-				TemporaryBuffer.erase(TemporaryBuffer.begin(), TemporaryBuffer.begin() + StartOffset);
-				auto OldSize = TemporaryBuffer.size();
-				assert(OldSize < ContentLength);
-				TemporaryBuffer.resize(ContentLength);
-				TcpSocket::AsyncReceive(std::span(TemporaryBuffer).subspan(OldSize), [OldSize, ContentLength, Func = std::move(Func)](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable{
-					Agency HttpAge{Age};
+				auto Span = PrepareTBufferForReceive();
+				TcpSocket::AsyncReceiveSome(Span, [Func = std::move(Func)](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable {
+					Agency Http{Age};
 					if (!EC)
 					{
-						assert(Read + OldSize == ContentLength);
-						HttpAge->ReceiveHeadContentExecute(EC, 0, ContentLength, std::move(Func));
+						Http->ReceiveTBuffer(Read);
+						Http->ReceiveHeadExecute(std::move(Func));
 					}
 					else {
-						HttpAge->TemporaryBuffer.clear();
-						HttpAge->ProtocolReceiving = false;
-						Func(EC, SectionT::Finish, {}, HttpAge);
+						Http->ProtocolReceiving = false;
+						Http->ClearTBuffer();
+						Func(EC, SectionT::Head, 0, Http);
 					}
 				});
 			}
 		}
 
 		template<typename RespondFunction>
-		void ReceiveChunkedContentExecute(std::error_code const& LastEC, std::size_t StartOffset, std::optional<std::size_t> Data, RespondFunction Func)
+		void ReceiveHeadContentExecute(std::size_t RequireSize, RespondFunction Func)
 		{
-			if (TemporaryBuffer.size() > StartOffset)
+			Agency Age{this};
+			auto Output = Func({}, SectionT::HeadContent, RequireSize, Age);
+			auto [O1, Size] = ConsumeTBufferTo(Output);
+			if (!O1.empty())
 			{
-				if (Data.has_value())
-				{
-					if (*Data + StartOffset + SectionSperator().size() <= TemporaryBuffer.size())
+				TcpSocket::AsyncReceive(O1, [Size, Func = std::move(Func)](std::error_code const& EC, std::size_t ReadSize, TcpSocket::Agency& Age) mutable {
+					Agency Http{Age};
+					Http->ProtocolReceiving = false;
+					if (EC)
 					{
-						Agency HttpAge{this};
-						if (*Data == 0)
-						{
-							TemporaryBuffer.erase(TemporaryBuffer.begin(), TemporaryBuffer.begin() + StartOffset + SectionSperator().size());
-							ProtocolReceiving = false;
-							Func(LastEC, SectionT::Finish, {}, HttpAge);
-						}
-						else {
-							auto Span = std::span(TemporaryBuffer).subspan(StartOffset, *Data);
-							Func(LastEC, SectionT::ChunkedContent, Span, HttpAge);
-							this->ReceiveChunkedContentExecute(LastEC, StartOffset + *Data +  SectionSperator().size(), {}, std::move(Func));
-						}
-						return;
+						Http->ClearTBuffer();
+						Func(EC, SectionT::HeadContent, ReadSize + Size, Http);
 					}
-				}
-				else {
-					auto Span = std::span(TemporaryBuffer).subspan(StartOffset);
-					std::u8string_view Str{reinterpret_cast<char8_t const*>(Span.data()), Span.size() / sizeof(char8_t)};
-					auto SectionSize = FindSectionLength(Str);
-					if (SectionSize.has_value())
-					{
-						assert(*SectionSize >= SectionSperator().size());
-						Str = Str.substr(0, *SectionSize - SectionSperator().size());
-						HexChunkedContentCount Count;
-						Potato::StrFormat::DirectScan(Str, Count);
-						this->ReceiveChunkedContentExecute(LastEC, StartOffset + *SectionSize, Count.Value, std::move(Func));
-						return;
+					else {
+						Func(EC, SectionT::Finish, 0, Http);
 					}
-				}
-			}
-			TemporaryBuffer.erase(TemporaryBuffer.begin(), TemporaryBuffer.begin() + StartOffset);
-			auto OldSize = TemporaryBuffer.size();
-			if (Data.has_value())
-			{
-				assert(OldSize < *Data + SectionSperator().size());
-				TemporaryBuffer.resize(*Data + SectionSperator().size());
+				});
 			}
 			else {
-				TemporaryBuffer.resize(OldSize + CacheSize);
+				Age->ProtocolReceiving = false;
+				Func({}, SectionT::Finish, 0, Age);
 			}
-			TcpSocket::AsyncReceiveSome(std::span(TemporaryBuffer).subspan(OldSize), [Data, OldSize, Func = std::move(Func)](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable {
-				Agency HttpAge{Age};
-				HttpAge->TemporaryBuffer.resize(OldSize + Read);
-				if (!EC)
+		}
+
+		template<typename RespondFunc>
+		void ReceiveChunkedContentExecute(bool ReceiveContentEnd, RespondFunc Func)
+		{
+			auto Re = ConsumeChunkedContentSize(ReceiveContentEnd);
+			if (Re.has_value())
+			{
+				Agency Http{this};
+				if (*Re != 0)
 				{
-					HttpAge->ReceiveChunkedContentExecute(EC, 0, Data, std::move(Func));
+					auto Span = Func({}, SectionT::ChunkedContent, *Re, Http);
+					auto [S1, Size] = ConsumeTBufferTo(Span);
+					if (!S1.empty())
+					{
+						TcpSocket::AsyncReceive(S1, [Func = std::move(Func), Size](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable {
+							Agency Http{Age};
+							if (!EC)
+							{
+								Http->ReceiveChunkedContentExecute(true, std::move(Func));
+							}
+							else {
+								Http->ClearTBuffer();
+								Http->ProtocolReceiving = false;
+								Func(EC, SectionT::ChunkedContent, Size + Read, Http);
+							}
+						});
+					}
+					else {
+						ReceiveChunkedContentExecute(true, std::move(Func));
+					}
 				}
 				else {
-					Func(EC, SectionT::Finish, {}, HttpAge);
+					if (TryConsumeContentEnd())
+					{
+						ProtocolReceiving = false;
+						Func({}, SectionT::Finish, 0, Http);
+					}
+					else {
+						auto Span = PrepareTBufferForReceive();
+						TcpSocket::AsyncReceive(Span.subspan(0, 2), [Func = std::move(Func)](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable {
+							Agency Http{Age};
+							Http->ReceiveTBuffer(Read);
+							bool Re = Http->TryConsumeContentEnd();
+							assert(Re);
+							Http->ProtocolReceiving = false;
+							Func({}, SectionT::Finish, 0, Http);
+						});
+					}
 				}
-			});
+			}
+			else {
+				auto Output = PrepareTBufferForReceive();
+				TcpSocket::AsyncReceiveSome(Output, [ReceiveContentEnd, Func = std::move(Func)](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable{
+					Agency Http{Age};
+					if (!EC)
+					{
+						Http->ReceiveTBuffer(Read);
+						Http->ReceiveChunkedContentExecute(ReceiveContentEnd, std::move(Func));
+					}
+					else {
+						Http->ClearTBuffer();
+						Http->ProtocolReceiving = false;
+						Func(EC, SectionT::ChunkedContent, Read, Http);
+					}
+				});
+			}
 		}
 
 		friend struct IntrusiceObjWrapper;

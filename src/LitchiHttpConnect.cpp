@@ -136,6 +136,105 @@ namespace Litchi
 		}
 		return Fur.get();
 	}
+
+	static constexpr std::size_t CacheSize = 1024;
+
+	std::span<std::byte> Http11Client::PrepareTBufferForReceive()
+	{
+		if (TBuffer.size() - TIndex.End() < CacheSize)
+		{
+			if (TIndex.Begin() != 0)
+			{
+				TBuffer.erase(TBuffer.begin(), TBuffer.begin() + TIndex.Begin());
+				TBuffer.resize(TBuffer.capacity());
+				TIndex.Offset = 0;
+			}
+			if (TBuffer.size() - TIndex.End() < CacheSize)
+			{
+				TBuffer.reserve(TBuffer.capacity() + CacheSize);
+				TBuffer.resize(TBuffer.capacity());
+			}
+		}
+		return Potato::Misc::IndexSpan<>{TIndex.End(), CacheSize}.Slice(TBuffer);
+	}
+
+	void Http11Client::ReceiveTBuffer(std::size_t Read)
+	{
+		TIndex.Length += Read;
+	}
+
+	void Http11Client::ClearTBuffer()
+	{
+		TBuffer.clear();
+		TIndex = {};
+	}
+
+	auto Http11Client::ConsumeHead() -> std::optional<HeadR>
+	{
+		auto Span = TIndex.Slice(TBuffer);
+		auto Head = std::u8string_view{reinterpret_cast<char8_t const*>(Span.data()), Span.size()};
+		auto HeadSize = FindHeadSize(Head);
+		if (HeadSize.has_value())
+		{
+			Head = Head.substr(0, *HeadSize);
+			TIndex = TIndex.Sub(*HeadSize);
+			HeadR Res;
+			Res.HeadData = Span.subspan(0, *HeadSize);
+			Res.IsOK = IsResponseHeadOK(Head);
+			Res.HeadContentSize = FindHeadContentLength(Head);
+			Res.NeedChunkedContent = IsChunkedContent(Head);
+			return Res;
+		}
+		return {};
+	}
+
+	std::span<std::byte> Http11Client::ConsumeTBuffer(std::size_t MaxSize)
+	{
+		std::size_t MiniSize = std::min(MaxSize, TIndex.Count());
+		auto Out = TIndex.Sub(0, MiniSize).Slice(TBuffer);
+		TIndex = TIndex.Sub(MiniSize);
+		return Out;
+	}
+
+	std::span<std::byte> Http11Client::ConsumeTBufferTo(std::span<std::byte> Input)
+	{
+		auto Out = ConsumeTBuffer(Input.size());
+		std::copy_n(Out.begin(), Out.size(), Input.begin());
+		return Input.subspan(Out.size());
+	}
+
+	std::optional<std::size_t> Http11Client::ConsumeChunkedContentSize(bool NeedContentEnd)
+	{
+		auto CurSpan = TIndex.Slice(TBuffer);
+		if (NeedContentEnd)
+		{
+			if(CurSpan.size() < SectionSperator().size())
+				return {};
+			CurSpan = CurSpan.subspan(SectionSperator().size());
+		}
+		std::u8string_view Viewer {reinterpret_cast<char8_t const*>(CurSpan.data()), CurSpan.size()};
+		auto SS = FindSectionLength(Viewer);
+		if (SS.has_value())
+		{
+			Viewer = Viewer.substr(0, *SS - SectionSperator().size());
+			CurSpan = CurSpan.subspan(*SS);
+			HexChunkedContentCount Count;
+			Potato::StrFormat::DirectScan(Viewer, Count);
+			TIndex = TIndex.Sub(TIndex.Count() - CurSpan.size());
+			return Count.Value;
+		}
+		return {};
+	}
+
+	bool Http11Client::TryConsumeContentEnd()
+	{
+		if (TIndex.Count() >= 2)
+		{
+			TIndex = TIndex.Sub(2);
+			return true;
+		}
+		return false;
+	}
 }
 
 namespace Potato::StrFormat
