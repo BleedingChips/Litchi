@@ -1,5 +1,6 @@
 #include "Litchi/LitchiHttpConnect.h"
 #include "Potato/PotatoStrFormat.h"
+#include "Litchi/LitchiCompression.h"
 
 namespace Potato::StrFormat
 {
@@ -228,12 +229,53 @@ namespace Litchi
 
 	bool Http11Client::TryConsumeContentEnd()
 	{
-		if (TIndex.Count() >= 2)
+		if (TIndex.Count() >= SectionSperator().size())
 		{
-			TIndex = TIndex.Sub(2);
+			TIndex = TIndex.Sub(SectionSperator().size());
 			return true;
 		}
 		return false;
+	}
+
+	std::optional<std::span<std::byte>> Http11Client::Agency::HandleRespond(RespondT& Res, SectionT Section, std::size_t SectionCount)
+	{
+		switch (Section)
+		{
+		case SectionT::Head:
+			Res.Head.resize(SectionCount);
+			return std::span<std::byte>{reinterpret_cast<std::byte*>(Res.Head.data()), Res.Head.size()};
+		case SectionT::HeadContent:
+		case SectionT::ChunkedContent:
+			Res.Content.resize(Res.Content.size() + SectionCount);
+			return std::span(Res.Content).subspan(Res.Content.size() - SectionCount);
+		case SectionT::Finish:
+			return std::nullopt;
+		}
+		return std::nullopt;
+	}
+
+	std::optional<std::vector<std::byte>> Http11Client::DecompressContent(std::u8string_view Head, std::span<std::byte const> Res)
+	{
+		auto Value = FindHeadOptionalValue(u8"Content-Encoding", Head);
+		if (Value.has_value())
+		{
+			if (*Value == u8"gzip")
+			{
+				std::vector<std::byte> Temp;
+				auto Output = GZipDecompress(Res, [&](GZipDecProperty const& Pro) -> std::span<std::byte> {
+					Temp.resize(Temp.size() - Pro.LastReceiveOutputSize + Pro.LastDecompressOutputSize);
+					auto Comm = std::max(Pro.UnDecompressSize * 3, std::size_t{ 256 });
+					Temp.resize(Temp.size() + Comm);
+					return std::span(Temp).subspan(Temp.size() - Comm);
+				});
+				if (Output.has_value())
+				{
+					Temp.resize(*Output);
+					return Temp;
+				}
+			}
+		}
+		return {};
 	}
 }
 

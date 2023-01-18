@@ -6,8 +6,8 @@ namespace Litchi
 	struct GZipDecProperty
 	{
 		std::size_t UnDecompressSize = 0;
-		std::size_t LastOutputSize = 0;
-		std::size_t LastDecompressSize = 0;
+		std::size_t LastReceiveOutputSize = 0;
+		std::size_t LastDecompressOutputSize = 0;
 	};
 
 	namespace Implement

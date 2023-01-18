@@ -1,5 +1,5 @@
 #include "Litchi/LitchiCompression.h"
-#include "zlib/zlib.h"
+#include "zlib.h"
 namespace Litchi
 {
 	namespace Implement

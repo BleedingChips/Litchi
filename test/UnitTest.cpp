@@ -17,12 +17,8 @@ int main()
 
 	auto HttpPtr = Http::Create(Context.GetIOContext());
 
-	std::u8string Head;
-	std::u8string HeadContent;
-	std::vector<std::byte> ChunkedContent;
-
-	std::promise<void> Promise;
-	std::future<void> Fur = Promise.get_future();
+	std::promise<Http11Client::RespondT> Promise;
+	std::future<Http11Client::RespondT> Fur = Promise.get_future();
 
 
 	HttpPtr->SyncConnect(u8"www.baidu.com");
@@ -31,57 +27,29 @@ int main()
 		Age.Send({}, [&](std::error_code const& EC, Http::Agency& Age){
 			if (!EC)
 			{
-				Age.Receive([&](std::error_code const& EC, Http::SectionT Section, std::span<std::byte const> Buffer, Http::Agency&){
-					std::cout << Buffer.size() << std::endl;
-					switch (Section)
-					{
-					case Http::SectionT::Head:
-						Head = std::u8string{reinterpret_cast<char8_t const*>(Buffer.data()), Buffer.size() / sizeof(char8_t)};
-						break;
-					case Http::SectionT::HeadContent:
-						HeadContent = std::u8string{ reinterpret_cast<char8_t const*>(Buffer.data()), Buffer.size() / sizeof(char8_t) };
-						break;
-					case Http::SectionT::ChunkedContent:
-						ChunkedContent.insert(ChunkedContent.end(), Buffer.begin(), Buffer.end());
-						break;
-					case Http::SectionT::Finish:
-						Promise.set_value();
-						break;
-					}
+				Age.ReceiveRespond([&](std::error_code const& EC, Http11Client::RespondT T, Http11Client::Agency& Age){
+					Promise.set_value(T);
 				});
 			}
 			else {
-				Promise.set_value();
+				Promise.set_value({});
 			}
 		});
 	});
 
-	Fur.get();
+	auto Result = Fur.get();
 
 	Potato::Document::Writer Wri(u8"Respond.txt");
-	Wri.Write(Head);
-	Wri.Write(HeadContent);
+	Wri.Write(Result.Head);
 	Wri.Flush();
-
-	std::ofstream of("ChunkedContent.gz", std::ios::binary);
-	of.write(reinterpret_cast<char*>(ChunkedContent.data()), ChunkedContent.size());
-	of.flush();
-
-	std::vector<std::byte> Decompression;
-
-	Litchi::GZipDecompress(ChunkedContent, [&](Litchi::GZipDecProperty const& Pro) -> std::span<std::byte>{
-		Decompression.resize(Decompression.size() - Pro.LastOutputSize + Pro.LastDecompressSize);
-		if (Pro.UnDecompressSize != 0)
-		{
-			auto OldSize = Decompression.size();
-			Decompression.resize(OldSize + std::max(Pro.UnDecompressSize * 3, std::size_t{256}));
-			return std::span(Decompression).subspan(OldSize);
-		}
-		return {};
-	});
-
 	std::ofstream of2("ChunkedContent.html", std::ios::binary);
-	of2.write(reinterpret_cast<char*>(Decompression.data()), Decompression.size());
+	auto Temp = Http11Client::DecompressContent(Result.Head, Result.Content);
+	if (Temp.has_value())
+	{
+		of2.write(reinterpret_cast<char*>(Temp->data()), Temp->size());
+	}
+	
+	
 	of2.flush();
 
 	return 0;

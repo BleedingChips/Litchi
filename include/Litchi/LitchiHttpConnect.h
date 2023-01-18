@@ -39,6 +39,13 @@ namespace Litchi
 		static auto IsChunkedContent(std::u8string_view Head) -> bool;
 		static auto IsResponseHead(std::u8string_view Head) -> bool;
 		static auto IsResponseHeadOK(std::u8string_view Head) -> bool;
+		static auto DecompressContent(std::u8string_view Head, std::span<std::byte const> Content) -> std::optional<std::vector<std::byte>>;
+
+		struct RespondT
+		{
+			std::u8string Head;
+			std::vector<std::byte> Content;
+		};
 
 		enum SectionT
 		{
@@ -59,10 +66,34 @@ namespace Litchi
 
 			template<typename RespondFunction>
 			bool Receive(RespondFunction Func)
-				requires(std::is_invocable_v<RespondFunction, std::error_code const&, SectionT, std::span<std::byte const>, Agency&>)
+				requires(std::is_invocable_r_v<std::span<std::byte>, RespondFunction, std::error_code const&, SectionT, std::size_t, Agency&>)
 			{
 				return (*this)->Http11Client::AsyncReceive(std::move(Func));
 			}
+
+			template<typename RespondFunction>
+			bool ReceiveRespond(RespondFunction Func)
+				requires(std::is_invocable_v<RespondFunction, std::error_code const&, RespondT, Agency&>)
+			{
+				return (*this)->Http11Client::AsyncReceive([Func = std::move(Func), Res = RespondT{}](std::error_code const& EC, SectionT Section, std::size_t SectionCount, Agency& Age) mutable -> std::span<std::byte> {
+					if (!EC)
+					{
+						auto Re = HandleRespond(Res, Section, SectionCount);
+						if (Re.has_value())
+							return *Re;
+						else {
+							Func({}, std::move(Res), Age);
+						}
+					}
+					else {
+						Func(EC, {}, Age);
+					}
+					return {};
+				});
+			}
+
+			static std::optional<std::span<std::byte>> HandleRespond(RespondT& Res, SectionT Section, std::size_t SectionCount);
+			
 
 		protected:
 			
@@ -110,7 +141,7 @@ namespace Litchi
 		bool AsyncConnect(std::u8string_view Host, RespondFunction Func)
 			requires(std::is_invocable_v<RespondFunction, std::error_code const&, EndPointT, Agency&>)
 		{
-			return TcpSocket::AsyncConnect(Host, u8"http", [Host = std::u8string{Host}, Func = std::move(Func)](std::error_code const& EC, EndPointT EP, TcpSocket::Agency& Age){
+			return TcpSocket::AsyncConnect(Host, u8"http", [Host = std::u8string{Host}, Func = std::move(Func)](std::error_code const& EC, EndPointT EP, TcpSocket::Agency& Age) mutable {
 				Agency HttpAge{Age};
 				if(!EC)
 					HttpAge->Host = std::move(Host);
@@ -120,7 +151,7 @@ namespace Litchi
 
 		template<typename RespondFunction>
 		bool AsyncReceive(RespondFunction Func)
-			requires(std::is_invocable_r_v<std::span<std::byte>, RespondFunction, std::error_code const&, SectionT, std::span<std::byte const>, Agency&>)
+			requires(std::is_invocable_r_v<std::span<std::byte>, RespondFunction, std::error_code const&, SectionT, std::size_t, Agency&>)
 		{
 			if (AbleToReceive())
 			{
@@ -208,10 +239,10 @@ namespace Litchi
 		{
 			Agency Age{this};
 			auto Output = Func({}, SectionT::HeadContent, RequireSize, Age);
-			auto [O1, Size] = ConsumeTBufferTo(Output);
+			auto O1 = ConsumeTBufferTo(Output);
 			if (!O1.empty())
 			{
-				TcpSocket::AsyncReceive(O1, [Size, Func = std::move(Func)](std::error_code const& EC, std::size_t ReadSize, TcpSocket::Agency& Age) mutable {
+				TcpSocket::AsyncReceive(O1, [Size = Output.size() - O1.size(), Func = std::move(Func)](std::error_code const& EC, std::size_t ReadSize, TcpSocket::Agency& Age) mutable {
 					Agency Http{Age};
 					Http->ProtocolReceiving = false;
 					if (EC)
@@ -240,10 +271,10 @@ namespace Litchi
 				if (*Re != 0)
 				{
 					auto Span = Func({}, SectionT::ChunkedContent, *Re, Http);
-					auto [S1, Size] = ConsumeTBufferTo(Span);
+					auto S1 = ConsumeTBufferTo(Span);
 					if (!S1.empty())
 					{
-						TcpSocket::AsyncReceive(S1, [Func = std::move(Func), Size](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable {
+						TcpSocket::AsyncReceive(S1, [Func = std::move(Func), Size = Span.size() - S1.size()](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable {
 							Agency Http{Age};
 							if (!EC)
 							{

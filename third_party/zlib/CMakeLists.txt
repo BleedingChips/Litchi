@@ -3,7 +3,7 @@ cmake_minimum_required (VERSION 3.20)
 project (zlib VERSION 1.2.13 LANGUAGES C)
 
 add_library(
-	zlibcomplie 
+	zlibstatic 
 	STATIC
 	src/adler32.c
 	src/compress.c
@@ -22,10 +22,5 @@ add_library(
 	src/zutil.c
 )
 
-target_include_directories(zlibcomplie PUBLIC "include/zlib")
-target_compile_definitions(zlibcomplie PUBLIC ZLIB_CONST)
-
-add_library(zlibstatic INTERFACE)
-
-target_include_directories(zlibstatic INTERFACE "include/")
-target_link_libraries(zlibstatic INTERFACE zlibcomplie)
+target_include_directories(zlibstatic PUBLIC "include/zlib")
+target_compile_definitions(zlibstatic PUBLIC ZLIB_CONST)

@@ -9,5 +9,5 @@ add_library(
 target_include_directories(LitchiLib PUBLIC "../include/")
 target_link_libraries(LitchiLib PUBLIC asio)
 target_link_libraries(LitchiLib PUBLIC PotatoLib)
-target_link_libraries(LitchiLib PUBLIC zlibstatic)
-target_link_libraries(LitchiLib PUBLIC minizipstatic)
+target_link_libraries(LitchiLib PRIVATE zlibstatic)
+target_link_libraries(LitchiLib PRIVATE minizipstatic)
