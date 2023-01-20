@@ -1,9 +1,11 @@
 #pragma once
 #include "LitchiSocketConnect.h"
+#include "Potato/PotatoStrFormat.h"
 #include <map>
 #include <optional>
 #include <string_view>
-#include "Potato/PotatoStrFormat.h"
+#include <deque>
+
 
 namespace Litchi
 {
@@ -55,6 +57,8 @@ namespace Litchi
 			Finish,
 		};
 
+		static std::optional<std::span<std::byte>> HandleRespond(RespondT& Res, SectionT Section, std::size_t SectionCount);
+
 		struct Agency : protected TcpSocket::Agency
 		{
 			template<typename RespondFunction>
@@ -75,25 +79,8 @@ namespace Litchi
 			bool ReceiveRespond(RespondFunction Func)
 				requires(std::is_invocable_v<RespondFunction, std::error_code const&, RespondT, Agency&>)
 			{
-				return (*this)->Http11Client::AsyncReceive([Func = std::move(Func), Res = RespondT{}](std::error_code const& EC, SectionT Section, std::size_t SectionCount, Agency& Age) mutable -> std::span<std::byte> {
-					if (!EC)
-					{
-						auto Re = HandleRespond(Res, Section, SectionCount);
-						if (Re.has_value())
-							return *Re;
-						else {
-							Func({}, std::move(Res), Age);
-						}
-					}
-					else {
-						Func(EC, {}, Age);
-					}
-					return {};
-				});
+				return (*this)->Http11Client::AsyncReceiveRespond(std::move(Func));
 			}
-
-			static std::optional<std::span<std::byte>> HandleRespond(RespondT& Res, SectionT Section, std::size_t SectionCount);
-			
 
 		protected:
 			
@@ -138,6 +125,20 @@ namespace Litchi
 		}
 
 		template<typename RespondFunction>
+		bool AsyncSend(std::span<std::byte> RowData, RespondFunction Func)
+			requires(std::is_invocable_v<RespondFunction, std::error_code const&, Agency&>)
+		{
+			if (TcpSocket::AbleToSend())
+			{
+				return TcpSocket::AsyncSend(RowData, [Func = std::move(Func)](std::error_code const& EC, std::size_t ReadSize, TcpSocket::Agency& Age) mutable {
+					Agency HttpAge{ Age };
+					Func(EC, HttpAge);
+				});
+			}
+			return false;
+		}
+
+		template<typename RespondFunction>
 		bool AsyncConnect(std::u8string_view Host, RespondFunction Func)
 			requires(std::is_invocable_v<RespondFunction, std::error_code const&, EndPointT, Agency&>)
 		{
@@ -162,15 +163,38 @@ namespace Litchi
 			return false;
 		}
 
+		template<typename RespondFunction>
+		bool AsyncReceiveRespond(RespondFunction Func)
+			requires(std::is_invocable_v<RespondFunction, std::error_code const&, RespondT, Agency&>)
+		{
+			return this->AsyncReceive([Func = std::move(Func), Res = RespondT{}](std::error_code const& EC, SectionT Section, std::size_t SectionCount, Agency& Age) mutable -> std::span<std::byte> {
+				if (!EC)
+				{
+					auto Re = HandleRespond(Res, Section, SectionCount);
+					if (Re.has_value())
+						return *Re;
+					else {
+						Func({}, std::move(Res), Age);
+					}
+				}
+				else {
+					Func(EC, {}, Age);
+				}
+			return {};
+				});
+		}
+
 		using TcpSocket::TcpSocket;
 		bool ProtocolReceiving = false;
 		std::u8string Host;
 		Potato::Misc::IndexSpan<> TIndex;
 		std::vector<std::byte> TBuffer;
 
+		bool AbleToReceive() const { return !ProtocolReceiving && TcpSocket::AbleToReceive(); }
+
 	private:
 		
-		bool AbleToReceive() const { return !ProtocolReceiving && TcpSocket::AbleToReceive(); }
+		
 
 		std::span<std::byte> PrepareTBufferForReceive();
 		std::span<std::byte> ConsumeTBuffer(std::size_t MaxSize);
@@ -327,6 +351,119 @@ namespace Litchi
 				});
 			}
 		}
+
+		friend struct IntrusiceObjWrapper;
+	};
+
+	struct Http11ClientSequencer : protected Http11Client
+	{
+		using PtrT = IntrusivePtr<Http11ClientSequencer>;
+		static auto Create(asio::io_context& Content) -> PtrT { return new Http11ClientSequencer{Content}; }
+		using EndPointT = Http11Client::EndPointT;
+		using RespondT = Http11Client::RespondT;
+
+		auto SyncConnect(std::u8string_view Host) -> std::optional<std::tuple<std::error_code, EndPointT>>;
+
+		struct Agency : protected Http11Client::Agency
+		{
+			template<typename RespondFunction>
+			bool Send(std::u8string_view Target, RespondFunction Func, RequestMethodT Method = RequestMethodT::GET, std::span<std::byte const> Content = {}, std::u8string_view ContentType = {})
+				requires(std::is_invocable_v<RespondFunction, std::error_code const&, RespondT, Agency&>)
+			{
+				return (*this)->AsyncSend(Target, std::move(Func), Method, Content, ContentType);
+			}
+		protected:
+			Http11ClientSequencer* operator->() { return static_cast<Http11ClientSequencer*>(Socket); }
+			Agency(Http11ClientSequencer* Ptr) : Http11Client::Agency(Ptr) {}
+			Agency(Http11Client::Agency& Age) : Http11Client::Agency(Age) {}
+
+			friend struct Http11ClientSequencer;
+		};
+
+		template<typename WraFunc>
+		void Lock(WraFunc Func)
+			requires(std::is_invocable_v<WraFunc, Agency&>)
+		{
+			Http11Client::Lock([Func = std::move(Func)](LastAgency& LAge) {
+				Agency Age{LAge};
+				Func(Age);
+			});
+		}
+
+
+	protected:
+
+		using LastAgency = Http11Client::Agency;
+
+		template<typename ResFunc>
+		bool AsyncConnect(std::u8string_view Host, ResFunc Func)
+			requires(std::is_invocable_v<ResFunc, std::error_code const&, EndPointT, Agency&>)
+		{
+			return Http11Client::AsyncConnect(Host, [Func = std::move(Func)](std::error_code const& EC, EndPointT EP, LastAgency& LAge) mutable {
+				Agency Age{ LAge };
+				Func(EC, std::move(EP), Age);
+				Age->ExecuteSendList();
+			});
+		}
+
+		template<typename RespondFunction>
+		bool AsyncSend(std::u8string_view Target, RespondFunction Func, RequestMethodT Method, std::span<std::byte const> Content, std::u8string_view ContentType)
+			requires(std::is_invocable_v<RespondFunction, std::error_code const&, RespondT, Agency&>)
+		{
+			std::vector<std::byte> SendBuffer;
+			SendBuffer.resize(RequestLength(Method, Target, Host, Content, ContentType));
+			auto Span = std::span(SendBuffer);
+			TranslateRequestTo(Span, Method, Target, Host, Content, ContentType);
+
+			if (AbleToSend())
+			{
+				bool Re = Http11Client::AsyncSend(Span, [SendBuffer = std::move(SendBuffer), Func = std::move(Func)](std::error_code const& EC, Http11Client::Agency& Age) mutable {
+					Agency Seque{ Age };
+					if (!EC)
+					{
+						if (Seque->AbleToReceive())
+						{
+							bool Re = Seque->Http11Client::AsyncReceiveRespond([Func = std::move(Func)](std::error_code const& EC, RespondT Res, LastAgency& LAge) mutable {
+								Agency Age{LAge};
+								Func(EC, Res, Age);
+								Age->ExecuteReceiveList();
+							});
+							assert(Re);
+						}
+						else {
+							Seque->RespondList.push_back(std::move(Func));
+						}
+					}
+					else
+					{
+						Func(EC, {}, Seque);
+					}
+					Seque->ExecuteSendList();
+				});
+				assert(Re);
+				return true;
+			}
+			else {
+				SendList.push_back({std::move(SendBuffer), std::move(Func)});
+				return false;
+			}
+		}
+
+		struct SendT
+		{
+			std::vector<std::byte> Buffer;
+			std::function<void(std::error_code const&, RespondT, Agency&)> Func;
+		};
+
+		std::deque<SendT> SendList;
+		std::deque<std::function<void(std::error_code const&, RespondT, Agency&)>> RespondList;
+
+		Http11ClientSequencer(asio::io_context& Content) : Http11Client(Content) {}
+
+	private:
+
+		bool ExecuteSendList();
+		bool ExecuteReceiveList();
 
 		friend struct IntrusiceObjWrapper;
 	};

@@ -237,7 +237,7 @@ namespace Litchi
 		return false;
 	}
 
-	std::optional<std::span<std::byte>> Http11Client::Agency::HandleRespond(RespondT& Res, SectionT Section, std::size_t SectionCount)
+	std::optional<std::span<std::byte>> Http11Client::HandleRespond(RespondT& Res, SectionT Section, std::size_t SectionCount)
 	{
 		switch (Section)
 		{
@@ -276,6 +276,67 @@ namespace Litchi
 			}
 		}
 		return {};
+	}
+
+	bool Http11ClientSequencer::ExecuteSendList()
+	{
+		if (!SendList.empty() && AbleToSend())
+		{
+			auto Top = std::move(*SendList.begin());
+			SendList.pop_front();
+			auto Span = std::span(Top.Buffer);
+			bool Re = Http11Client::AsyncSend(Span, [Buffer = std::move(Top.Buffer), Func = std::move(Top.Func)](std::error_code const& EC, LastAgency& LAge) mutable {
+				Agency Age{LAge};
+				if (!EC)
+				{
+					Age->RespondList.push_back(std::move(Func));
+				}
+				else {
+					Func(EC, {}, Age);
+				}
+				Age->ExecuteReceiveList();
+			});
+			assert(Re);
+			return true;
+		}
+		return false;
+	}
+
+	bool Http11ClientSequencer::ExecuteReceiveList()
+	{
+		if (!RespondList.empty() && Http11Client::AbleToReceive())
+		{
+			auto Top = std::move(*RespondList.begin());
+			RespondList.pop_front();
+			bool Re = Http11Client::AsyncReceiveRespond([Top = std::move(Top)](std::error_code const& EC, RespondT Respond, LastAgency& LAge) mutable {
+				Agency Age{ LAge };
+				if (!EC)
+				{
+					Top(EC, std::move(Respond), Age);
+				}
+				else {
+					Top(EC, {}, Age);
+				}
+				Age->ExecuteReceiveList();
+			});
+			assert(Re);
+			return true;
+		}
+		return false;
+	}
+
+	auto Http11ClientSequencer::SyncConnect(std::u8string_view Host) -> std::optional<std::tuple<std::error_code, EndPointT>>
+	{
+		std::promise<std::tuple<std::error_code, EndPointT>> Promise;
+		auto Fur = Promise.get_future();
+		{
+			auto lg = std::lock_guard(SocketMutex);
+			if (!Http11ClientSequencer::AsyncConnect(Host, [&](std::error_code const& EC, EndPointT EP, Agency&) {
+				Promise.set_value({ EC, std::move(EP) });
+			}))
+				return {};
+		}
+		return Fur.get();
 	}
 }
 
