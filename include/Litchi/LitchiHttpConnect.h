@@ -47,6 +47,18 @@ namespace Litchi
 		{
 			std::u8string Head;
 			std::vector<std::byte> Content;
+
+			bool AutoDecompress() {
+				auto Re = DecompressContent(Head, Content);
+				if (Re.has_value())
+				{
+					Content = std::move(*Re);
+					return true;
+				}
+				return false;
+			}
+
+			std::u8string_view ContentToStringView() const { return {reinterpret_cast<char8_t const*>(Content.data()), Content.size()}; }
 		};
 
 		enum SectionT
