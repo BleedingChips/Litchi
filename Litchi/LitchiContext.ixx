@@ -1,12 +1,13 @@
-#pragma once
-#include "asio/io_context.hpp"
-#include "Potato/PotatoMisc.h"
-#include "Potato/PotatoIntrusivePointer.h"
-#include <thread>
-#include <vector>
-#include <optional>
-#include <memory>
-namespace Litchi
+module;
+
+#include <asio.hpp>
+
+export module Litchi.Context;
+
+export import Potato.Misc;
+export import Potato.SmartPtr;
+
+export namespace Litchi
 {
 
 	struct Context

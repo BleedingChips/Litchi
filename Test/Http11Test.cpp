@@ -1,3 +1,10 @@
+import Litchi.Context;
+
+int main()
+{
+	return 0;
+}
+/*
 #include "Litchi/LitchiContext.h"
 #include "Litchi/LitchiSocketConnect.h"
 #include "Litchi/LitchiHttpConnect.h"
@@ -72,3 +79,4 @@ int main()
 
 	return 0;
 }
+*/

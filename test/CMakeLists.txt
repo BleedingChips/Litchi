@@ -1,9 +1,10 @@
-cmake_minimum_required (VERSION 3.24)
+cmake_minimum_required (VERSION 3.25.1)
 
 add_executable(
-	LitchiUnitTest
-	UnitTest.cpp
+	Http11Test
+	Http11Test.cpp
 )
 
-target_compile_features(LitchiUnitTest PUBLIC cxx_std_23)
-target_link_libraries(LitchiUnitTest PUBLIC LitchiLib)
+ENABLE_CPP_MODULE()
+
+target_link_libraries(Http11Test PUBLIC LitchiModule)
