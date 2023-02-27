@@ -23,7 +23,7 @@ target_sources(
 
 
 target_link_libraries(LitchiModule PUBLIC PotatoModule)
-target_link_libraries(LitchiModule PUBLIC asio)
+target_link_libraries(LitchiModule PUBLIC AsioWrapper)
 
 target_link_libraries(LitchiModule PRIVATE zlibstatic)
 target_link_libraries(LitchiModule PRIVATE minizipstatic)
