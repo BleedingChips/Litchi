@@ -5,6 +5,7 @@ ENABLE_CPP_MODULE()
 add_library(
 	LitchiModule 
 	STATIC
+	"LitchiContext.cpp"
 )
 
 target_sources(
@@ -19,11 +20,12 @@ target_sources(
 		"LitchiHttpConnect_Define.ixx"
 		"LitchiHttpConnect.ixx"
 		]]
+		"LitchiMemory.ixx"
 )
 
 
 target_link_libraries(LitchiModule PUBLIC PotatoModule)
-target_link_libraries(LitchiModule PUBLIC AsioWrapper)
+target_link_libraries(LitchiModule PRIVATE asio)
 
 target_link_libraries(LitchiModule PRIVATE zlibstatic)
 target_link_libraries(LitchiModule PRIVATE minizipstatic)

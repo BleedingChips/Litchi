@@ -2,6 +2,9 @@ import Litchi.Context;
 
 int main()
 {
+	
+	auto Ptr = Litchi::Context::CreateBackEnd();
+
 	return 0;
 }
 /*

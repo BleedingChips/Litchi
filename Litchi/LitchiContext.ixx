@@ -1,24 +1,33 @@
 module;
 
-#include "AsioWrapper/AsioWrapper.h"
-
 export module Litchi.Context;
 
-export import Potato.Misc;
-export import Potato.SmartPtr;
+export import Litchi.Memory;
 
 export namespace Litchi
 {
 
 	struct Context
 	{
+		virtual void AddRef() const = 0;
+		virtual void SubRef() const = 0;
+		virtual ~Context();
+
+		using PtrT = Potato::Misc::IntrusivePtr<Context>;
+
+		static auto CreateBackEnd(std::size_t ThreadCount = 1, InstanceAllocator<Context> Allocator = {}) -> PtrT;
+	};
+
+
+	/*
+	struct Context
+	{
 		template<typename AllocatorT = std::allocator<std::thread>>
 		struct MulityThreadAgency
 		{
 			MulityThreadAgency(std::size_t InThreadCount = 1, AllocatorT const& Allocator = AllocatorT{})
-				: ThreadCount(std::max(InThreadCount, std::size_t{ 1 })), /*IOContext(static_cast<int>(InThreadCount))*/ Threads(Allocator)
+				: ThreadCount(std::max(InThreadCount, std::size_t{ 1 })), IOContext(static_cast<int>(InThreadCount)) Threads(Allocator)
 			{
-				/*
 				Work.emplace(IOContext.get_executor());
 				for (std::size_t I = 0; I < ThreadCount; ++I)
 				{
@@ -26,7 +35,6 @@ export namespace Litchi
 						[this]() { IOContext.run(); }
 					);
 				}
-				*/
 			}
 
 			~MulityThreadAgency()
@@ -68,4 +76,5 @@ export namespace Litchi
 
 	template<typename ObjectT>
 	using IntrusivePtr = Potato::Misc::IntrusivePtr<ObjectT, IntrusiceObjWrapper>;
+	*/
 }

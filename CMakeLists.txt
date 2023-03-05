@@ -54,7 +54,7 @@ endif()
 
 add_subdirectory("ThirdParty/zlib")
 add_subdirectory("ThirdParty/minizip")
-add_subdirectory("ThirdParty/AsioWrapper")
+#add_subdirectory("ThirdParty/AsioWrapper")
 add_subdirectory("Litchi")
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
