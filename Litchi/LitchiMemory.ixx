@@ -26,12 +26,15 @@ export namespace Litchi
 	protected:
 
 		virtual std::byte* Allocate(MemoryType Type, std::size_t Align, std::size_t Size, std::size_t Count) = 0;
-		virtual void Deallocate(MemoryType Type, std::byte* MemoryBegin, std::size_t Align, std::size_t Size, std::size_t Count) = 0;
+		virtual void Deallocate(MemoryType Type, std::byte const* MemoryBegin, std::size_t Align, std::size_t Size, std::size_t Count) = 0;
 		virtual std::tuple<std::byte*, std::size_t> AllocateAtLast(MemoryType Type, std::size_t Align, std::size_t Size, std::size_t Count) = 0;
+
+		template<typename Type>
+		friend struct Allocator;
 	};
 
-	template<AllocatorInterface::MemoryType MType, typename Type>
-	struct BasicAllocator : std::allocator<Type>
+	template<typename Type>
+	struct Allocator : public std::allocator<Type>
 	{
 		using value_type = Type;
 		using size_type = std::size_t;
@@ -52,19 +55,19 @@ export namespace Litchi
 				));
 		}
 
-		constexpr void deallocate(void* Adress, std::size_t Num) {
+		constexpr void deallocate(Type* const Adress, std::size_t Num) {
 			if (!AllocatorPtr)
 			{
 				return std::allocator<Type>::deallocate(Adress, Num);
 			}
 			else
-				return reinterpret_cast<Type*>(AllocatorPtr->Deallocate(
+				return AllocatorPtr->Deallocate(
 					MType,
-					Adress,
+					reinterpret_cast<std::byte const*>(Adress),
 					alignof(Type),
 					sizeof(Type),
 					Num
-				));
+				);
 		}
 
 		constexpr std::allocation_result<Type*> allocate_at_least(std::size_t Num) {
@@ -84,25 +87,20 @@ export namespace Litchi
 				return { reinterpret_cast<Type*>(Adress), Count };
 			}
 		}
-		BasicAllocator() = default;
-		BasicAllocator(AllocatorInterface::Ptr InputPtr) : AllocatorPtr(std::move(InputPtr)) {}
-		BasicAllocator(BasicAllocator const&) = default;
-		BasicAllocator(BasicAllocator&&) = default;
-		template<AllocatorInterface::MemoryType MT2, typename OT>
-		BasicAllocator(BasicAllocator<MT2, OT> const Allocator) requires(MType == MT2 && MT2 == AllocatorInterface::MemoryType::INSTANCE)
-			: BasicAllocator(Allocator.AllocatorPtr) {}
-
+		Allocator() = default;
+		Allocator(AllocatorInterface::Ptr InputPtr, AllocatorInterface::MemoryType InputType = AllocatorInterface::MemoryType::INSTANCE) : AllocatorPtr(std::move(InputPtr)), MType(InputType) {}
+		Allocator(Allocator const&) = default;
+		Allocator(Allocator&&) = default;
+		template<typename OT>
+		Allocator(Allocator<OT> Allocator)
+			: Allocator(std::move(Allocator.AllocatorPtr), Allocator.MType) {}
+		
 	protected:
-
+		
+		const AllocatorInterface::MemoryType MType = AllocatorInterface::MemoryType::INSTANCE;
 		AllocatorInterface::Ptr AllocatorPtr;
 
-		template<AllocatorInterface::MemoryType MT2, typename T>
-		friend struct BasicAllocator;
+		template<typename T>
+		friend struct Allocator;
 	};
-
-	template<typename Type>
-	using InstanceAllocator = BasicAllocator<AllocatorInterface::MemoryType::INSTANCE, Type>;
-
-	template<typename Type>
-	using TempAllocator = BasicAllocator<AllocatorInterface::MemoryType::TEMP, Type>;
 }

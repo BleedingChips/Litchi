@@ -1,21 +1,35 @@
 module;
 
 #include "asio.hpp"
+#include "LitchiSocketExecutor.h"
 
 module Litchi.Context;
+
 
 namespace Litchi
 {
 	Context::~Context() {}
 
-
-	struct ContextBackEnds : public Context
+	struct IpTcpSocket : public SocketAgency, public TcpSocketExecuter
 	{
 
-		ContextBackEnds(InstanceAllocator<ContextBackEnds> InputAllocator, std::size_t ThreadCount) :
-			Allocator(InputAllocator), Threads(InputAllocator)
+	};
+
+	struct ContextHolder : public Context
+	{
+		asio::io_context IOContext;
+
+		Socket CreateIpTcpSocket() = 0;
+	};
+
+
+	struct ContextBackEnds : public ContextHolder
+	{
+
+		ContextBackEnds(Allocator<ContextBackEnds> InputAllocator, std::size_t ThreadCount) :
+			InsideAllocator(InputAllocator), Threads(InputAllocator)
 		{
-			ThreadCount = std::max(1, ThreadCount);
+			ThreadCount = std::max(std::size_t{ 1 }, ThreadCount);
 			Threads.reserve(ThreadCount);
 			Work.emplace(IOContext.get_executor());
 			for (std::size_t I = 0; I < ThreadCount; ++I)
@@ -37,21 +51,19 @@ namespace Litchi
 
 	protected:
 
-		InstanceAllocator<ContextBackEnds> Allocator;
+		Allocator<ContextBackEnds> InsideAllocator;
 		mutable Potato::Misc::AtomicRefCount Ref;
 		asio::io_context IOContext;
-		std::vector<std::thread, InstanceAllocator<std::thread>> Threads;
+		std::vector<std::thread, Allocator<std::thread>> Threads;
 		std::optional<asio::executor_work_guard<decltype(IOContext.get_executor())>> Work;
 
-		virtual void AddRef() const { Ref.AddRef(); }
-		virtual void SubRef() const { Ref.SubRef(); }
+		virtual void AddRef() const override { Ref.AddRef(); }
+		virtual void SubRef() const override { Ref.SubRef(); }
 	};
 
-	auto Context::CreateBackEnd(std::size_t ThreadCount, InstanceAllocator<Context> Allocator) -> PtrT
+	auto Context::CreateBackEnd(std::size_t ThreadCount, Allocator<Context> InputAllocator) -> PtrT
 	{
-		
-		InstanceAllocator<ContextBackEnds> TempA(Allocator);
-
+		Allocator<ContextBackEnds> TempA{ std::move(InputAllocator) };
 		auto cur = TempA.allocate(1);
 		PtrT Ptr = new ContextBackEnds(std::move(TempA), ThreadCount);
 		return Ptr;

@@ -1,367 +1,491 @@
-#include "Litchi/LitchiHttpConnect.h"
+#pragma once
+#include "LitchiSocketConnect.h"
 #include "Potato/PotatoStrFormat.h"
-#include "Litchi/LitchiCompression.h"
+#include <map>
+#include <optional>
+#include <string_view>
+#include <deque>
 
-namespace Potato::StrFormat
-{
-
-	constexpr auto Trans(Litchi::Http11Client::RequestMethodT Method) -> std::u8string_view
-	{
-		switch (Method)
-		{
-		case Litchi::Http11Client::RequestMethodT::GET:
-			return u8"GET";
-		}
-		return {};
-	}
-
-	template<>
-	struct Formatter<Litchi::Http11Client::RequestMethodT, char8_t>
-	{
-		constexpr static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::Http11Client::RequestMethodT Input) {
-			auto Tar = Trans(Input);
-			std::copy_n(Tar.data(), Tar.size() * sizeof(char8_t), Output.data());
-			return Tar.size();
-		}
-		constexpr static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Parameter, Litchi::Http11Client::RequestMethodT Input) {
-			auto Tar = Trans(Input);
-			return Tar.size();
-		}
-	};
-}
 
 namespace Litchi
 {
+	
+	struct Http11Client : protected TcpSocket
+	{
 
-	constexpr std::u8string_view NoContentFormatter = u8"{} {} HTTP/1.1\r\nHost: {}\r\nAccept: text/html\r\nAccept-Encoding: gzip\r\nAccept-Charset: utf-8\r\n\r\n";
-	constexpr std::u8string_view HeadContentFormatter = u8"{} {} HTTP/1.1\r\nHost: {}\r\nAccept: text/html\r\nAccept-Encoding: gzip\r\nAccept-Charset: utf-8\r\nContent-Type: {}\r\nContent-Type: {}\r\n\r\n";
+		using EndPointT = typename TcpSocket::EndPointT;
 
-	auto Http11Client::RequestLength(RequestMethodT Method, std::u8string_view Target, std::u8string_view Host, std::span<std::byte const> Content, std::u8string_view ContentType) -> std::size_t
-	{
-		if (Content.empty() || ContentType.empty())
-		{
-			return *Potato::StrFormat::FormatSize(NoContentFormatter, Method, (Target.empty() ? std::u8string_view{u8"/"} : Target), Host) * sizeof(char8_t);
-		}
-		return *Potato::StrFormat::FormatSize(HeadContentFormatter, Method, (Target.empty() ? std::u8string_view{ u8"/" } : Target), Host, ContentType, Content.size()) * sizeof(char8_t) + Content.size() ;
-	}
+		using PtrT = IntrusivePtr<Http11Client>;
 
-	auto Http11Client::TranslateRequestTo(std::span<std::byte> OutputBuffer, RequestMethodT Method, std::u8string_view Target, std::u8string_view Host, std::span<std::byte const> Content, std::u8string_view ContentType) -> std::size_t
-	{
-		if (Content.empty() || ContentType.empty())
+		static auto Create(asio::io_context& Content) -> PtrT { return new Http11Client{Content}; }
+
+		enum class RequestMethodT : uint8_t
 		{
-			return *Potato::StrFormat::FormatToUnSafe({reinterpret_cast<char8_t*>(OutputBuffer.data()),  OutputBuffer.size() / sizeof(char8_t)}, NoContentFormatter, Method, (Target.empty() ? std::u8string_view{u8"/"} : Target), Host) * sizeof(char8_t);
-		}
-		else
+			GET,
+		};
+
+		struct HexChunkedContentCount
 		{
-			auto Size = *Potato::StrFormat::FormatSize(HeadContentFormatter, Method, (Target.empty() ? std::u8string_view{ u8"/" } : Target), Host, ContentType, Content.size()) * sizeof(char8_t);
-			std::copy_n(Content.begin(), Content.size(), OutputBuffer.subspan(Size).data());
-			return Size + Content.size();
-		}
-	}
-	auto Http11Client::FindHeadSize(std::u8string_view Str) -> std::optional<std::size_t>
-	{
-		auto Index = Str.find(HeadSperator());
-		if (Index < Str.size())
+			std::size_t Value = 0;
+		};
+
+		static constexpr auto HeadSperator() -> std::u8string_view { return u8"\r\n\r\n"; }
+		static constexpr auto SectionSperator() -> std::u8string_view { return u8"\r\n"; }
+
+		static auto RequestLength(RequestMethodT Method, std::u8string_view Target, std::u8string_view Host, std::span<std::byte const> Content, std::u8string_view ContentType) -> std::size_t;
+		static auto TranslateRequestTo(std::span<std::byte> OutputBuffer, RequestMethodT Method, std::u8string_view Target, std::u8string_view Host, std::span<std::byte const> Content, std::u8string_view ContentType) -> std::size_t;
+		static auto FindHeadSize(std::u8string_view Str) -> std::optional<std::size_t>;
+		static auto FindHeadOptionalValue(std::u8string_view Key, std::u8string_view Head) -> std::optional<std::u8string_view>;
+		static auto FindHeadContentLength(std::u8string_view Head) -> std::optional<std::size_t>;
+		static auto FindSectionLength(std::u8string_view Str) -> std::optional<std::size_t>;
+		static auto IsChunkedContent(std::u8string_view Head) -> bool;
+		static auto IsResponseHead(std::u8string_view Head) -> bool;
+		static auto IsResponseHeadOK(std::u8string_view Head) -> bool;
+		static auto DecompressContent(std::u8string_view Head, std::span<std::byte const> Content) -> std::optional<std::vector<std::byte>>;
+
+		struct RespondT
 		{
-			return (Index + HeadSperator().size());
-		}else
-			return {};
-	}
-	auto Http11Client::FindHeadOptionalValue(std::u8string_view Key, std::u8string_view Head) -> std::optional<std::u8string_view>
-	{
-		constexpr std::u8string_view S1 = u8": ";
-		constexpr std::u8string_view S2 = u8"\r\n";
-		while (!Head.empty())
-		{
-			auto Index = Head.find(Key);
-			if (Index < Head.size())
-			{
-				Head = Head.substr(Index + Key.size());
-				Index = Head.find(S1);
-				if (Index < Head.size())
+			std::u8string Head;
+			std::vector<std::byte> Content;
+
+			bool AutoDecompress() {
+				auto Re = DecompressContent(Head, Content);
+				if (Re.has_value())
 				{
-					Head = Head.substr(Index + S1.size());
-					Index = Head.find(S2);
-					if(Index < Head.size())
-						return Head.substr(0, Index);
+					Content = std::move(*Re);
+					return true;
 				}
-			}else
-				return {};
-		}
-		return {};
-	}
+				return false;
+			}
 
-	auto Http11Client::FindHeadContentLength(std::u8string_view Head) -> std::optional<std::size_t>
-	{
-		auto Length = FindHeadOptionalValue(u8"Content-Length", Head);
-		if (Length.has_value())
+			std::u8string_view ContentToStringView() const { return {reinterpret_cast<char8_t const*>(Content.data()), Content.size()}; }
+		};
+
+		enum SectionT
 		{
-			std::size_t Count = 0;
-			Potato::StrFormat::DirectScan(*Length, Count);
-			return Count;
-		}
-		return {};
-	}
+			Head,
+			HeadContent,
+			ChunkedContent,
+			Finish,
+		};
 
-	auto Http11Client::FindSectionLength(std::u8string_view Str) -> std::optional<std::size_t>
-	{
-		auto Index = Str.find(SectionSperator());
-		if(Index < Str.size())
-			return Index + SectionSperator().size();
-		return {};
-	}
-	auto Http11Client::IsChunkedContent(std::u8string_view Head) -> bool
-	{
-		auto Op = FindHeadOptionalValue(u8"Transfer-Encoding", Head);
-		return Op.has_value() && *Op == u8"chunked";
-	}
-	auto Http11Client::IsResponseHead(std::u8string_view Head) -> bool
-	{
-		return Head.starts_with(u8"HTTP/1.1");
-	}
-	auto Http11Client::IsResponseHeadOK(std::u8string_view Head) -> bool
-	{
-		return Head.starts_with(u8"HTTP/1.1 200 OK\r\n");
-	}
+		static std::optional<std::span<std::byte>> HandleRespond(RespondT& Res, SectionT Section, std::size_t SectionCount);
 
-	auto Http11Client::SyncConnect(std::u8string_view Host) -> std::optional<std::tuple<std::error_code, EndPointT>>
-	{
-		std::promise<std::tuple<std::error_code, EndPointT>> Promise;
-		auto Fur = Promise.get_future();
+		struct Agency : protected TcpSocket::Agency
+		{
+			template<typename RespondFunction>
+			bool Send(std::u8string_view Target, RespondFunction Func, RequestMethodT Method = RequestMethodT::GET, std::span<std::byte const> Content = {}, std::u8string_view ContentType = {})
+				requires(std::is_invocable_v<RespondFunction, std::error_code const&, Agency&>)
+			{
+				return (*this)->Http11Client::AsyncSend(Target, std::move(Func), Method, Content, ContentType);
+			}
+
+			template<typename RespondFunction>
+			bool Receive(RespondFunction Func)
+				requires(std::is_invocable_r_v<std::span<std::byte>, RespondFunction, std::error_code const&, SectionT, std::size_t, Agency&>)
+			{
+				return (*this)->Http11Client::AsyncReceive(std::move(Func));
+			}
+
+			template<typename RespondFunction>
+			bool ReceiveRespond(RespondFunction Func)
+				requires(std::is_invocable_v<RespondFunction, std::error_code const&, RespondT, Agency&>)
+			{
+				return (*this)->Http11Client::AsyncReceiveRespond(std::move(Func));
+			}
+
+		protected:
+			
+			Http11Client* operator->() { return static_cast<Http11Client*>(Socket); }
+			Http11Client* operator*() { return static_cast<Http11Client*>(Socket); }
+			Agency(TcpSocket::Agency& Age) : TcpSocket::Agency(Age) {}
+			Agency(TcpSocket::Agency const& Age) : TcpSocket::Agency(Age) {}
+			Agency(Http11Client* Age) : TcpSocket::Agency(Age) {}
+
+			friend struct Http11Client;
+			friend struct TcpSocket;
+		};
+
+		auto SyncConnect(std::u8string_view Host) -> std::optional<std::tuple<std::error_code, EndPointT>>;
+
+		template<typename WrapperFunction>
+		void Lock(WrapperFunction&& Func)
 		{
 			auto lg = std::lock_guard(SocketMutex);
-			if(!Http11Client::AsyncConnect(Host, [&](std::error_code const& EC, EndPointT EP, Agency&){
-				Promise.set_value({EC, std::move(EP)});
-			}))
-				return {};
+			Agency Age{this};
+			std::forward<WrapperFunction>(Func)(Age);
 		}
-		return Fur.get();
-	}
 
-	static constexpr std::size_t CacheSize = 1024;
+	protected:
 
-	std::span<std::byte> Http11Client::PrepareTBufferForReceive()
-	{
-		if (TBuffer.size() - TIndex.End() < CacheSize)
+		template<typename RespondFunction>
+		bool AsyncSend(std::u8string_view Target, RespondFunction Func, RequestMethodT Method, std::span<std::byte const> Content, std::u8string_view ContentType)
+			requires(std::is_invocable_v<RespondFunction, std::error_code const&, Agency&>)
 		{
-			if (TIndex.Begin() != 0)
+			if (TcpSocket::AbleToSend())
 			{
-				TBuffer.erase(TBuffer.begin(), TBuffer.begin() + TIndex.Begin());
-				TBuffer.resize(TBuffer.capacity());
-				TIndex.Offset = 0;
-			}
-			if (TBuffer.size() - TIndex.End() < CacheSize)
-			{
-				TBuffer.reserve(TBuffer.capacity() + CacheSize);
-				TBuffer.resize(TBuffer.capacity());
-			}
-		}
-		return Potato::Misc::IndexSpan<>{TIndex.End(), CacheSize}.Slice(TBuffer);
-	}
-
-	void Http11Client::ReceiveTBuffer(std::size_t Read)
-	{
-		TIndex.Length += Read;
-	}
-
-	void Http11Client::ClearTBuffer()
-	{
-		TBuffer.clear();
-		TIndex = {};
-	}
-
-	auto Http11Client::ConsumeHead() -> std::optional<HeadR>
-	{
-		auto Span = TIndex.Slice(TBuffer);
-		auto Head = std::u8string_view{reinterpret_cast<char8_t const*>(Span.data()), Span.size()};
-		auto HeadSize = FindHeadSize(Head);
-		if (HeadSize.has_value())
-		{
-			Head = Head.substr(0, *HeadSize);
-			TIndex = TIndex.Sub(*HeadSize);
-			HeadR Res;
-			Res.HeadData = Span.subspan(0, *HeadSize);
-			Res.IsOK = IsResponseHeadOK(Head);
-			Res.HeadContentSize = FindHeadContentLength(Head);
-			Res.NeedChunkedContent = IsChunkedContent(Head);
-			return Res;
-		}
-		return {};
-	}
-
-	std::span<std::byte> Http11Client::ConsumeTBuffer(std::size_t MaxSize)
-	{
-		std::size_t MiniSize = std::min(MaxSize, TIndex.Count());
-		auto Out = TIndex.Sub(0, MiniSize).Slice(TBuffer);
-		TIndex = TIndex.Sub(MiniSize);
-		return Out;
-	}
-
-	std::span<std::byte> Http11Client::ConsumeTBufferTo(std::span<std::byte> Input)
-	{
-		auto Out = ConsumeTBuffer(Input.size());
-		std::copy_n(Out.begin(), Out.size(), Input.begin());
-		return Input.subspan(Out.size());
-	}
-
-	std::optional<std::size_t> Http11Client::ConsumeChunkedContentSize(bool NeedContentEnd)
-	{
-		auto CurSpan = TIndex.Slice(TBuffer);
-		if (NeedContentEnd)
-		{
-			if(CurSpan.size() < SectionSperator().size())
-				return {};
-			CurSpan = CurSpan.subspan(SectionSperator().size());
-		}
-		std::u8string_view Viewer {reinterpret_cast<char8_t const*>(CurSpan.data()), CurSpan.size()};
-		auto SS = FindSectionLength(Viewer);
-		if (SS.has_value())
-		{
-			Viewer = Viewer.substr(0, *SS - SectionSperator().size());
-			CurSpan = CurSpan.subspan(*SS);
-			HexChunkedContentCount Count;
-			Potato::StrFormat::DirectScan(Viewer, Count);
-			TIndex = TIndex.Sub(TIndex.Count() - CurSpan.size());
-			return Count.Value;
-		}
-		return {};
-	}
-
-	bool Http11Client::TryConsumeContentEnd()
-	{
-		if (TIndex.Count() >= SectionSperator().size())
-		{
-			TIndex = TIndex.Sub(SectionSperator().size());
-			return true;
-		}
-		return false;
-	}
-
-	std::optional<std::span<std::byte>> Http11Client::HandleRespond(RespondT& Res, SectionT Section, std::size_t SectionCount)
-	{
-		switch (Section)
-		{
-		case SectionT::Head:
-			Res.Head.resize(SectionCount);
-			return std::span<std::byte>{reinterpret_cast<std::byte*>(Res.Head.data()), Res.Head.size()};
-		case SectionT::HeadContent:
-		case SectionT::ChunkedContent:
-			Res.Content.resize(Res.Content.size() + SectionCount);
-			return std::span(Res.Content).subspan(Res.Content.size() - SectionCount);
-		case SectionT::Finish:
-			return std::nullopt;
-		}
-		return std::nullopt;
-	}
-
-	std::optional<std::vector<std::byte>> Http11Client::DecompressContent(std::u8string_view Head, std::span<std::byte const> Res)
-	{
-		auto Value = FindHeadOptionalValue(u8"Content-Encoding", Head);
-		if (Value.has_value())
-		{
-			if (*Value == u8"gzip")
-			{
-				std::vector<std::byte> Temp;
-				auto Output = GZipDecompress(Res, [&](GZipDecProperty const& Pro) -> std::span<std::byte> {
-					Temp.resize(Temp.size() - Pro.LastReceiveOutputSize + Pro.LastDecompressOutputSize);
-					auto Comm = std::max(Pro.UnDecompressSize * 3, std::size_t{ 256 });
-					Temp.resize(Temp.size() + Comm);
-					return std::span(Temp).subspan(Temp.size() - Comm);
+				std::vector<std::byte> SendBuffer;
+				SendBuffer.resize(RequestLength(Method, Target, Host, Content, ContentType));
+				auto Span = std::span(SendBuffer);
+				TranslateRequestTo(Span, Method, Target, Host, Content, ContentType);
+				return TcpSocket::AsyncSend(Span, [SendBuffer = std::move(SendBuffer), Func = std::move(Func)](std::error_code const& EC, std::size_t ReadSize, TcpSocket::Agency& Age) {
+					Agency HttpAge{Age};
+					Func(EC, HttpAge);
 				});
-				if (Output.has_value())
-				{
-					Temp.resize(*Output);
-					return Temp;
-				}
 			}
+			return false;
 		}
-		return {};
-	}
 
-	bool Http11ClientSequencer::ExecuteSendList()
-	{
-		if (!SendList.empty() && AbleToSend())
+		template<typename RespondFunction>
+		bool AsyncSend(std::span<std::byte> RowData, RespondFunction Func)
+			requires(std::is_invocable_v<RespondFunction, std::error_code const&, Agency&>)
 		{
-			auto Top = std::move(*SendList.begin());
-			SendList.pop_front();
-			auto Span = std::span(Top.Buffer);
-			bool Re = Http11Client::AsyncSend(Span, [Buffer = std::move(Top.Buffer), Func = std::move(Top.Func)](std::error_code const& EC, LastAgency& LAge) mutable {
-				Agency Age{LAge};
+			if (TcpSocket::AbleToSend())
+			{
+				return TcpSocket::AsyncSend(RowData, [Func = std::move(Func)](std::error_code const& EC, std::size_t ReadSize, TcpSocket::Agency& Age) mutable {
+					Agency HttpAge{ Age };
+					Func(EC, HttpAge);
+				});
+			}
+			return false;
+		}
+
+		template<typename RespondFunction>
+		bool AsyncConnect(std::u8string_view Host, RespondFunction Func)
+			requires(std::is_invocable_v<RespondFunction, std::error_code const&, EndPointT, Agency&>)
+		{
+			return TcpSocket::AsyncConnect(Host, u8"http", [Host = std::u8string{Host}, Func = std::move(Func)](std::error_code const& EC, EndPointT EP, TcpSocket::Agency& Age) mutable {
+				Agency HttpAge{Age};
+				if(!EC)
+					HttpAge->Host = std::move(Host);
+				Func(EC, std::move(EP), HttpAge);
+			});
+		}
+
+		template<typename RespondFunction>
+		bool AsyncReceive(RespondFunction Func)
+			requires(std::is_invocable_r_v<std::span<std::byte>, RespondFunction, std::error_code const&, SectionT, std::size_t, Agency&>)
+		{
+			if (AbleToReceive())
+			{
+				ProtocolReceiving = true;
+				this->ReceiveHeadExecute(std::move(Func));
+				return true;
+			}
+			return false;
+		}
+
+		template<typename RespondFunction>
+		bool AsyncReceiveRespond(RespondFunction Func)
+			requires(std::is_invocable_v<RespondFunction, std::error_code const&, RespondT, Agency&>)
+		{
+			return this->AsyncReceive([Func = std::move(Func), Res = RespondT{}](std::error_code const& EC, SectionT Section, std::size_t SectionCount, Agency& Age) mutable -> std::span<std::byte> {
 				if (!EC)
 				{
-					Age->RespondList.push_back(std::move(Func));
+					auto Re = HandleRespond(Res, Section, SectionCount);
+					if (Re.has_value())
+						return *Re;
+					else {
+						Func({}, std::move(Res), Age);
+					}
 				}
 				else {
 					Func(EC, {}, Age);
 				}
-				Age->ExecuteReceiveList();
-			});
-			assert(Re);
-			return true;
+			return {};
+				});
 		}
-		return false;
-	}
 
-	bool Http11ClientSequencer::ExecuteReceiveList()
-	{
-		if (!RespondList.empty() && Http11Client::AbleToReceive())
+		using TcpSocket::TcpSocket;
+		bool ProtocolReceiving = false;
+		std::u8string Host;
+		Potato::Misc::IndexSpan<> TIndex;
+		std::vector<std::byte> TBuffer;
+
+		bool AbleToReceive() const { return !ProtocolReceiving && TcpSocket::AbleToReceive(); }
+
+	private:
+		
+		
+
+		std::span<std::byte> PrepareTBufferForReceive();
+		std::span<std::byte> ConsumeTBuffer(std::size_t MaxSize);
+		std::span<std::byte> ConsumeTBufferTo(std::span<std::byte> Output);
+		void ReceiveTBuffer(std::size_t ReceiveSize);
+		void ClearTBuffer();
+
+		struct HeadR
 		{
-			auto Top = std::move(*RespondList.begin());
-			RespondList.pop_front();
-			bool Re = Http11Client::AsyncReceiveRespond([Top = std::move(Top)](std::error_code const& EC, RespondT Respond, LastAgency& LAge) mutable {
-				Agency Age{ LAge };
-				if (!EC)
+			std::span<std::byte> HeadData;
+			bool IsOK = false;
+			bool NeedChunkedContent = false;
+			std::optional<std::size_t> HeadContentSize;
+		};
+
+		std::optional<HeadR> ConsumeHead();
+		std::optional<std::size_t> ConsumeChunkedContentSize(bool NeedContentEnd);
+		bool TryConsumeContentEnd();
+
+		template<typename RespondFunction>
+		void ReceiveHeadExecute(RespondFunction Func)
+		{
+			auto Head = ConsumeHead();
+			if (Head.has_value())
+			{
+				Agency Age{this};
+				auto Span = Func({}, SectionT::Head, Head->HeadData.size(), Age);
+				std::copy_n(Head->HeadData.begin(), Head->HeadData.size(), Span.begin());
+				if (Head->IsOK)
 				{
-					Top(EC, std::move(Respond), Age);
+					if (Head->HeadContentSize.has_value())
+					{
+						this->ReceiveHeadContentExecute(*Head->HeadContentSize, std::move(Func));
+						return;
+					}
+					else if (Head->NeedChunkedContent)
+					{
+						this->ReceiveChunkedContentExecute(false, std::move(Func));
+						return;
+					}
+				}
+				ProtocolReceiving = false;
+				Func({}, SectionT::Finish, 0, Age);
+				return;
+			}
+			else {
+				auto Span = PrepareTBufferForReceive();
+				TcpSocket::AsyncReceiveSome(Span, [Func = std::move(Func)](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable {
+					Agency Http{Age};
+					if (!EC)
+					{
+						Http->ReceiveTBuffer(Read);
+						Http->ReceiveHeadExecute(std::move(Func));
+					}
+					else {
+						Http->ProtocolReceiving = false;
+						Http->ClearTBuffer();
+						Func(EC, SectionT::Head, 0, Http);
+					}
+				});
+			}
+		}
+
+		template<typename RespondFunction>
+		void ReceiveHeadContentExecute(std::size_t RequireSize, RespondFunction Func)
+		{
+			Agency Age{this};
+			auto Output = Func({}, SectionT::HeadContent, RequireSize, Age);
+			auto O1 = ConsumeTBufferTo(Output);
+			if (!O1.empty())
+			{
+				TcpSocket::AsyncReceive(O1, [Size = Output.size() - O1.size(), Func = std::move(Func)](std::error_code const& EC, std::size_t ReadSize, TcpSocket::Agency& Age) mutable {
+					Agency Http{Age};
+					Http->ProtocolReceiving = false;
+					if (EC)
+					{
+						Http->ClearTBuffer();
+						Func(EC, SectionT::HeadContent, ReadSize + Size, Http);
+					}
+					else {
+						Func(EC, SectionT::Finish, 0, Http);
+					}
+				});
+			}
+			else {
+				Age->ProtocolReceiving = false;
+				Func({}, SectionT::Finish, 0, Age);
+			}
+		}
+
+		template<typename RespondFunc>
+		void ReceiveChunkedContentExecute(bool ReceiveContentEnd, RespondFunc Func)
+		{
+			auto Re = ConsumeChunkedContentSize(ReceiveContentEnd);
+			if (Re.has_value())
+			{
+				Agency Http{this};
+				if (*Re != 0)
+				{
+					auto Span = Func({}, SectionT::ChunkedContent, *Re, Http);
+					auto S1 = ConsumeTBufferTo(Span);
+					if (!S1.empty())
+					{
+						TcpSocket::AsyncReceive(S1, [Func = std::move(Func), Size = Span.size() - S1.size()](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable {
+							Agency Http{Age};
+							if (!EC)
+							{
+								Http->ReceiveChunkedContentExecute(true, std::move(Func));
+							}
+							else {
+								Http->ClearTBuffer();
+								Http->ProtocolReceiving = false;
+								Func(EC, SectionT::ChunkedContent, Size + Read, Http);
+							}
+						});
+					}
+					else {
+						ReceiveChunkedContentExecute(true, std::move(Func));
+					}
 				}
 				else {
-					Top(EC, {}, Age);
+					if (TryConsumeContentEnd())
+					{
+						ProtocolReceiving = false;
+						Func({}, SectionT::Finish, 0, Http);
+					}
+					else {
+						auto Span = PrepareTBufferForReceive();
+						TcpSocket::AsyncReceive(Span.subspan(0, 2), [Func = std::move(Func)](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable {
+							Agency Http{Age};
+							Http->ReceiveTBuffer(Read);
+							bool Re = Http->TryConsumeContentEnd();
+							assert(Re);
+							Http->ProtocolReceiving = false;
+							Func({}, SectionT::Finish, 0, Http);
+						});
+					}
 				}
-				Age->ExecuteReceiveList();
-			});
-			assert(Re);
-			return true;
+			}
+			else {
+				auto Output = PrepareTBufferForReceive();
+				TcpSocket::AsyncReceiveSome(Output, [ReceiveContentEnd, Func = std::move(Func)](std::error_code const& EC, std::size_t Read, TcpSocket::Agency& Age) mutable{
+					Agency Http{Age};
+					if (!EC)
+					{
+						Http->ReceiveTBuffer(Read);
+						Http->ReceiveChunkedContentExecute(ReceiveContentEnd, std::move(Func));
+					}
+					else {
+						Http->ClearTBuffer();
+						Http->ProtocolReceiving = false;
+						Func(EC, SectionT::ChunkedContent, Read, Http);
+					}
+				});
+			}
 		}
-		return false;
-	}
 
-	auto Http11ClientSequencer::SyncConnect(std::u8string_view Host) -> std::optional<std::tuple<std::error_code, EndPointT>>
+		friend struct IntrusiceObjWrapper;
+	};
+
+	struct Http11ClientSequencer : protected Http11Client
 	{
-		std::promise<std::tuple<std::error_code, EndPointT>> Promise;
-		auto Fur = Promise.get_future();
+		using PtrT = IntrusivePtr<Http11ClientSequencer>;
+		static auto Create(asio::io_context& Content) -> PtrT { return new Http11ClientSequencer{Content}; }
+		using EndPointT = Http11Client::EndPointT;
+		using RespondT = Http11Client::RespondT;
+
+		auto SyncConnect(std::u8string_view Host) -> std::optional<std::tuple<std::error_code, EndPointT>>;
+
+		struct Agency : protected Http11Client::Agency
 		{
-			auto lg = std::lock_guard(SocketMutex);
-			if (!Http11ClientSequencer::AsyncConnect(Host, [&](std::error_code const& EC, EndPointT EP, Agency&) {
-				Promise.set_value({ EC, std::move(EP) });
-			}))
-				return {};
+			template<typename RespondFunction>
+			bool Send(std::u8string_view Target, RespondFunction Func, RequestMethodT Method = RequestMethodT::GET, std::span<std::byte const> Content = {}, std::u8string_view ContentType = {})
+				requires(std::is_invocable_v<RespondFunction, std::error_code const&, RespondT, Agency&>)
+			{
+				return (*this)->AsyncSend(Target, std::move(Func), Method, Content, ContentType);
+			}
+		protected:
+			Http11ClientSequencer* operator->() { return static_cast<Http11ClientSequencer*>(Socket); }
+			Agency(Http11ClientSequencer* Ptr) : Http11Client::Agency(Ptr) {}
+			Agency(Http11Client::Agency& Age) : Http11Client::Agency(Age) {}
+
+			friend struct Http11ClientSequencer;
+		};
+
+		template<typename WraFunc>
+		void Lock(WraFunc Func)
+			requires(std::is_invocable_v<WraFunc, Agency&>)
+		{
+			Http11Client::Lock([Func = std::move(Func)](LastAgency& LAge) {
+				Agency Age{LAge};
+				Func(Age);
+			});
 		}
-		return Fur.get();
-	}
+
+
+	protected:
+
+		using LastAgency = Http11Client::Agency;
+
+		template<typename ResFunc>
+		bool AsyncConnect(std::u8string_view Host, ResFunc Func)
+			requires(std::is_invocable_v<ResFunc, std::error_code const&, EndPointT, Agency&>)
+		{
+			return Http11Client::AsyncConnect(Host, [Func = std::move(Func)](std::error_code const& EC, EndPointT EP, LastAgency& LAge) mutable {
+				Agency Age{ LAge };
+				Func(EC, std::move(EP), Age);
+				Age->ExecuteSendList();
+			});
+		}
+
+		template<typename RespondFunction>
+		bool AsyncSend(std::u8string_view Target, RespondFunction Func, RequestMethodT Method, std::span<std::byte const> Content, std::u8string_view ContentType)
+			requires(std::is_invocable_v<RespondFunction, std::error_code const&, RespondT, Agency&>)
+		{
+			std::vector<std::byte> SendBuffer;
+			SendBuffer.resize(RequestLength(Method, Target, Host, Content, ContentType));
+			auto Span = std::span(SendBuffer);
+			TranslateRequestTo(Span, Method, Target, Host, Content, ContentType);
+
+			if (AbleToSend())
+			{
+				bool Re = Http11Client::AsyncSend(Span, [SendBuffer = std::move(SendBuffer), Func = std::move(Func)](std::error_code const& EC, Http11Client::Agency& Age) mutable {
+					Agency Seque{ Age };
+					if (!EC)
+					{
+						if (Seque->AbleToReceive())
+						{
+							bool Re = Seque->Http11Client::AsyncReceiveRespond([Func = std::move(Func)](std::error_code const& EC, RespondT Res, LastAgency& LAge) mutable {
+								Agency Age{LAge};
+								Func(EC, Res, Age);
+								Age->ExecuteReceiveList();
+							});
+							assert(Re);
+						}
+						else {
+							Seque->RespondList.push_back(std::move(Func));
+						}
+					}
+					else
+					{
+						Func(EC, {}, Seque);
+					}
+					Seque->ExecuteSendList();
+				});
+				assert(Re);
+				return true;
+			}
+			else {
+				SendList.push_back({std::move(SendBuffer), std::move(Func)});
+				return false;
+			}
+		}
+
+		struct SendT
+		{
+			std::vector<std::byte> Buffer;
+			std::function<void(std::error_code const&, RespondT, Agency&)> Func;
+		};
+
+		std::deque<SendT> SendList;
+		std::deque<std::function<void(std::error_code const&, RespondT, Agency&)>> RespondList;
+
+		Http11ClientSequencer(asio::io_context& Content) : Http11Client(Content) {}
+
+	private:
+
+		bool ExecuteSendList();
+		bool ExecuteReceiveList();
+
+		friend struct IntrusiceObjWrapper;
+	};
 }
 
 namespace Potato::StrFormat
 {
-
-	bool Scanner<Litchi::Http11Client::HexChunkedContentCount, char8_t>::Scan(std::u8string_view Par, Litchi::Http11Client::HexChunkedContentCount& Input)
+	template<>
+	struct Scanner<Litchi::Http11Client::HexChunkedContentCount, char8_t>
 	{
-		Input.Value = 0;
-		for (auto Ite : Par)
-		{
-			Input.Value *= 16;
-			if (Ite >= u8'0' && Ite <= u8'9')
-			{
-				Input.Value += (Ite - u8'0');
-			}
-			else if (Ite >= u8'a' && Ite <= u8'f')
-			{
-				Input.Value += 10 + (Ite - u8'a');
-			}
-			else if (Ite >= u8'A' && Ite <= u8'F')
-			{
-				Input.Value += 10 + (Ite - u8'A');
-			};
-		}
-		return true;
-	}
+		bool Scan(std::u8string_view Par, Litchi::Http11Client::HexChunkedContentCount& Input);
+	};
 }

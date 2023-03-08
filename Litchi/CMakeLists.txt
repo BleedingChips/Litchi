@@ -6,6 +6,10 @@ add_library(
 	LitchiModule 
 	STATIC
 	"LitchiContext.cpp"
+	"LitchiSocketExecutor.h"
+	"LitchiSocketExecutor.cpp"
+	
+	#"LitchiSocketConnect.cpp"
 )
 
 target_sources(
@@ -21,6 +25,7 @@ target_sources(
 		"LitchiHttpConnect.ixx"
 		]]
 		"LitchiMemory.ixx"
+		"LitchiSocketConnect.ixx"
 )
 
 

@@ -3,6 +3,7 @@ module;
 export module Litchi.Context;
 
 export import Litchi.Memory;
+export import Litchi.Socket;
 
 export namespace Litchi
 {
@@ -15,7 +16,8 @@ export namespace Litchi
 
 		using PtrT = Potato::Misc::IntrusivePtr<Context>;
 
-		static auto CreateBackEnd(std::size_t ThreadCount = 1, InstanceAllocator<Context> Allocator = {}) -> PtrT;
+		static auto CreateBackEnd(std::size_t ThreadCount = 1, Allocator<Context> Allocator = {}) -> PtrT;
+		virtual Socket CreateIpTcpSocket() = 0;
 	};
 
 
