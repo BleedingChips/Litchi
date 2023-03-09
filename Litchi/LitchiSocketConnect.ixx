@@ -11,6 +11,7 @@ export namespace Litchi
 	enum class ErrorT : uint8_t
 	{
 		None = 0,
+		Unknow,
 	};
 
 	struct SocketAgency
@@ -82,20 +83,20 @@ export namespace Litchi
 			ResetState();
 		}
 
-		auto Cancle() -> void {
-			CancleExe();
+		auto Cancel() -> void {
+			CancelExe();
 			ResetState();
 		}
 
 		bool IsConnecting() const { return Connecting; }
 		bool IsSending() const { return Sending; }
 		bool IsReceiving() const { return Receiving; }
-		virtual std::u8string_view GetCurrentHost() const = 0;
+		virtual std::u8string_view GetCurrentIpAdress() const { return u8""; };
 
 		void AddRef() const { RefCount.AddRef(); }
 		void SubRef() const { if (RefCount.SubRef()) { Release(); } }
 
-		SocketAgency() {}
+		SocketAgency(AllocatorT<SocketAgency> Allocator) {}
 
 	protected:
 
@@ -126,35 +127,38 @@ export namespace Litchi
 
 		virtual void ConnectExe(std::u8string_view Host, std::u8string_view Service, std::function<void(ErrorT)>) = 0;
 		virtual void SendExe(std::span<std::byte const> SendBuffer, std::function<void(ErrorT, std::size_t)>) = 0;
-		virtual void ReceiveSomeExe(std::span<std::byte const> PersistenceBuffer, std::function<void(ErrorT, std::size_t)>) = 0;
+		virtual void ReceiveSomeExe(std::span<std::byte> PersistenceBuffer, std::function<void(ErrorT, std::size_t)>) = 0;
 		virtual void CloseExe() = 0;
-		virtual void CancleExe() = 0;
+		virtual void CancelExe() = 0;
 		virtual void Release() const = 0;
 		virtual ~SocketAgency() {}
 	};
 
-	struct Socket : protected SocketAgency::PtrT
+	template<typename AgencyT>
+	struct AgencyTWrapper : protected AgencyT::PtrT
 	{
 		template<typename RespondFunc>
-		bool Lock(RespondFunction&& Func) requires(std::is_invocable_v<SocketAgency&>)
+		bool Lock(RespondFunc&& Func) requires(std::is_invocable_v<SocketAgency&>)
 		{
 			if (SocketAgency::PtrT::operator bool())
 			{
 				auto& Ref = *this;
-				Ref.Lock([this, &]() {
+				Ref.Lock([&]() {
 					std::forward<RespondFunc>(Func)(this->operator*());
-				});
+					});
 				return true;
 			}
 			return false;
 		}
-		Socket() = default;
-		Socket(Socket&&) = default;
-		Socket(Socket const&) = default;
-		Socket(SocketAgency::PtrT Ptr) : SocketAgency::PtrT(std::move(Ptr)) {}
-		Socket& operator=(Socket const&) = default;
-		Socket& operator=(Socket&&) = default;
+		AgencyTWrapper() = default;
+		AgencyTWrapper(AgencyTWrapper&&) = default;
+		AgencyTWrapper(AgencyTWrapper const&) = default;
+		AgencyTWrapper(AgencyT::PtrT Ptr) : AgencyT::PtrT(std::move(Ptr)) {}
+		AgencyTWrapper& operator=(AgencyTWrapper const&) = default;
+		AgencyTWrapper& operator=(AgencyTWrapper&&) = default;
 	};
+
+	using Socket = AgencyTWrapper<SocketAgency>;
 
 
 	/*

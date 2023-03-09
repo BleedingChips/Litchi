@@ -5,6 +5,8 @@ int main()
 	
 	auto Ptr = Litchi::Context::CreateBackEnd();
 
+	auto I = Ptr->CreateIpTcpSocket();
+
 	return 0;
 }
 /*

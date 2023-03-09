@@ -1,15 +1,31 @@
-#pragma once
-#include "LitchiSocketConnect.h"
-#include "Potato/PotatoStrFormat.h"
-#include <map>
-#include <optional>
-#include <string_view>
-#include <deque>
+module;
 
+export module Litchi.Http;
+
+export import Litchi.Socket;
 
 namespace Litchi
 {
 	
+	struct Http11Agency : protected SocketAgency
+	{
+
+		using SocketAgency::AddRef;
+		using SocketAgency::SubRef;
+		using SocketAgency::GetCurrentIpAdress;
+
+		void AddRef() const { SocketAgency::AddRef(); }
+		void SubRef() const { SocketAgency::SubRef(); }
+
+		Http11Agency(AllocatorT<Http11Agency> Alloctaor) : SocketAgency(Allocator) {}
+
+		std::vector<std::byte, AllocatorT<std::byte>> Receive;
+
+		virtual std::u8string_view GetCurrentIpAdress() const { return u8""; };
+
+	};
+
+
 	struct Http11Client : protected TcpSocket
 	{
 

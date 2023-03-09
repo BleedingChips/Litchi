@@ -9,7 +9,7 @@ export import Potato.SmartPtr;
 
 export namespace Litchi
 {
-	struct AllocatorInterface
+	struct AllocatorInterfaceT
 	{
 		enum class MemoryType
 		{
@@ -19,9 +19,9 @@ export namespace Litchi
 
 		virtual void AddRef() const = 0;
 		virtual void SubRef() const = 0;
-		virtual ~AllocatorInterface();
+		virtual ~AllocatorInterfaceT();
 
-		using Ptr = Potato::Misc::IntrusivePtr<AllocatorInterface>;
+		using PtrT = Potato::Misc::IntrusivePtr<AllocatorInterfaceT>;
 
 	protected:
 
@@ -30,24 +30,25 @@ export namespace Litchi
 		virtual std::tuple<std::byte*, std::size_t> AllocateAtLast(MemoryType Type, std::size_t Align, std::size_t Size, std::size_t Count) = 0;
 
 		template<typename Type>
-		friend struct Allocator;
+		friend struct AllocatorT;
 	};
 
 	template<typename Type>
-	struct Allocator : public std::allocator<Type>
+	struct AllocatorT : public std::allocator<Type>
 	{
 		using value_type = Type;
 		using size_type = std::size_t;
 		using difference_type = std::ptrdiff_t;
 		using propagate_on_container_move_assignment = std::true_type;
+		using MemoryType = AllocatorInterfaceT::MemoryType;
 
 		constexpr Type* allocate(std::size_t Num) {
-			if (!AllocatorPtr)
+			if (!Ptr)
 			{
 				return std::allocator<Type>::allocate(Num);
 			}
 			else
-				return reinterpret_cast<Type*>(AllocatorPtr->Allocate(
+				return reinterpret_cast<Type*>(Ptr->Allocate(
 					MType,
 					alignof(Type),
 					sizeof(Type),
@@ -56,12 +57,12 @@ export namespace Litchi
 		}
 
 		constexpr void deallocate(Type* const Adress, std::size_t Num) {
-			if (!AllocatorPtr)
+			if (!Ptr)
 			{
 				return std::allocator<Type>::deallocate(Adress, Num);
 			}
 			else
-				return AllocatorPtr->Deallocate(
+				return Ptr->Deallocate(
 					MType,
 					reinterpret_cast<std::byte const*>(Adress),
 					alignof(Type),
@@ -71,13 +72,13 @@ export namespace Litchi
 		}
 
 		constexpr std::allocation_result<Type*> allocate_at_least(std::size_t Num) {
-			if (!AllocatorPtr)
+			if (!Ptr)
 			{
 				return std::allocator<Type>::allocate_at_least(Num);
 			}
 			else
 			{
-				auto [Adress, Count] = AllocatorPtr->AllocateAtLast(
+				auto [Adress, Count] = Ptr->AllocateAtLast(
 					MType,
 					alignof(Type),
 					sizeof(Type),
@@ -87,20 +88,20 @@ export namespace Litchi
 				return { reinterpret_cast<Type*>(Adress), Count };
 			}
 		}
-		Allocator() = default;
-		Allocator(AllocatorInterface::Ptr InputPtr, AllocatorInterface::MemoryType InputType = AllocatorInterface::MemoryType::INSTANCE) : AllocatorPtr(std::move(InputPtr)), MType(InputType) {}
-		Allocator(Allocator const&) = default;
-		Allocator(Allocator&&) = default;
+		AllocatorT() = default;
+		AllocatorT(AllocatorInterfaceT::PtrT InputPtr, MemoryType InputType = MemoryType::INSTANCE) : Ptr(std::move(InputPtr)), MType(InputType) {}
+		AllocatorT(AllocatorT const&) = default;
+		AllocatorT(AllocatorT&&) = default;
 		template<typename OT>
-		Allocator(Allocator<OT> Allocator)
-			: Allocator(std::move(Allocator.AllocatorPtr), Allocator.MType) {}
+		AllocatorT(AllocatorT<OT> Allocator)
+			: AllocatorT(std::move(Allocator.Ptr), Allocator.MType) {}
 		
 	protected:
 		
-		const AllocatorInterface::MemoryType MType = AllocatorInterface::MemoryType::INSTANCE;
-		AllocatorInterface::Ptr AllocatorPtr;
+		const MemoryType MType = MemoryType::INSTANCE;
+		AllocatorInterfaceT::PtrT Ptr;
 
 		template<typename T>
-		friend struct Allocator;
+		friend struct AllocatorT;
 	};
 }

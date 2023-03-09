@@ -4,30 +4,67 @@ module;
 #include "LitchiSocketExecutor.h"
 
 module Litchi.Context;
-
+import Litchi.Socket;
 
 namespace Litchi
 {
+
 	Context::~Context() {}
 
-	struct IpTcpSocket : public SocketAgency, public TcpSocketExecuter
+	ErrorT Translate(std::error_code const& EC)
 	{
+		if(!EC)
+			return ErrorT::None;
+		else {
+			return ErrorT::Unknow;
+		}
+	}
+
+	template<typename Interface, typename Core>
+	struct SocketHolder : public AllocatorT<SocketHolder<Interface, Core>>, public Interface, public Core
+	{
+		SocketHolder(AllocatorT<SocketHolder> Allo, Context::PtrT ContextPtr, asio::io_context& Context)
+			: AllocatorT<SocketHolder>(std::move(Allo)), Interface(Allo), ContextPtr(std::move(ContextPtr)), Core(Context) {}
+		Context::PtrT ContextPtr;
+
+		virtual void Release() const override
+		{
+			AllocatorT<SocketHolder<Interface, Core>> Allo = std::move(*this);
+			Context::PtrT TempCon = std::move(ContextPtr);
+			this->~SocketHolder();
+			Allo.deallocate(const_cast<SocketHolder*>(this), 1);
+		}
+
+		virtual void CloseExe() override { Core::Close(); }
+		virtual void CancelExe() override { Core::Cancel(); }
+		virtual void ConnectExe(std::u8string_view Host, std::u8string_view Service, std::function<void(ErrorT)> Func) override
+		{
+			Core::Connect(Host, Service, [Func = std::move(Func)](std::error_code const& EC) {
+				return Func(Translate(EC));
+			});
+		}
+
+		virtual void SendExe(std::span<std::byte const> SendBuffer, std::function<void(ErrorT, std::size_t)> Func) override
+		{
+			Core::Send(SendBuffer, 0, [Func = std::move(Func)](std::error_code const& EC, std::size_t Count) {
+				return Func(Translate(EC), Count);
+			});
+		}
+
+		virtual void ReceiveSomeExe(std::span<std::byte> PersistenceBuffer, std::function<void(ErrorT, std::size_t)> Func) override
+		{
+			Core::ReceiveSome(PersistenceBuffer, [Func = std::move(Func)](std::error_code const& EC, std::size_t Count){
+				return Func(Translate(EC), Count);
+			});
+		}
 
 	};
 
-	struct ContextHolder : public Context
-	{
-		asio::io_context IOContext;
-
-		Socket CreateIpTcpSocket() = 0;
-	};
-
-
-	struct ContextBackEnds : public ContextHolder
+	struct ContextBackEnds : public AllocatorT<ContextBackEnds>, public Context
 	{
 
-		ContextBackEnds(Allocator<ContextBackEnds> InputAllocator, std::size_t ThreadCount) :
-			InsideAllocator(InputAllocator), Threads(InputAllocator)
+		ContextBackEnds(AllocatorT<ContextBackEnds> InputAllocator, std::size_t ThreadCount) :
+			AllocatorT<ContextBackEnds>(InputAllocator), Threads(InputAllocator)
 		{
 			ThreadCount = std::max(std::size_t{ 1 }, ThreadCount);
 			Threads.reserve(ThreadCount);
@@ -49,23 +86,36 @@ namespace Litchi
 			Threads.clear();
 		}
 
+		virtual Socket CreateIpTcpSocket()
+		{
+			AllocatorT<SocketHolder<SocketAgency, TcpSocketExecuter>> Allo = *this;
+			auto P = Allo.allocate(1);
+			auto K = new (P) SocketHolder<SocketAgency, TcpSocketExecuter>{std::move(Allo), this, IOContext};
+			return Socket{ SocketAgency ::PtrT{K}};
+		}
+
 	protected:
 
-		Allocator<ContextBackEnds> InsideAllocator;
 		mutable Potato::Misc::AtomicRefCount Ref;
 		asio::io_context IOContext;
-		std::vector<std::thread, Allocator<std::thread>> Threads;
+		std::vector<std::thread, AllocatorT<std::thread>> Threads;
 		std::optional<asio::executor_work_guard<decltype(IOContext.get_executor())>> Work;
 
 		virtual void AddRef() const override { Ref.AddRef(); }
-		virtual void SubRef() const override { Ref.SubRef(); }
+		virtual void SubRef() const override { 
+			if(Ref.SubRef()){
+				AllocatorT<ContextBackEnds> TemAllo = std::move(*this);
+				this->~ContextBackEnds();
+				TemAllo.deallocate(const_cast<ContextBackEnds*>(this), 1);
+			}
+		}
 	};
 
-	auto Context::CreateBackEnd(std::size_t ThreadCount, Allocator<Context> InputAllocator) -> PtrT
+	auto Context::CreateBackEnd(std::size_t ThreadCount, AllocatorT<Context> InputAllocator) -> PtrT
 	{
-		Allocator<ContextBackEnds> TempA{ std::move(InputAllocator) };
+		AllocatorT<ContextBackEnds> TempA{ std::move(InputAllocator) };
 		auto cur = TempA.allocate(1);
-		PtrT Ptr = new ContextBackEnds(std::move(TempA), ThreadCount);
+		PtrT Ptr = new (cur) ContextBackEnds(std::move(TempA), ThreadCount);
 		return Ptr;
 	}
 
