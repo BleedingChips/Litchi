@@ -23,8 +23,9 @@ namespace Litchi
 	template<typename Interface, typename Core>
 	struct SocketHolder : public AllocatorT<SocketHolder<Interface, Core>>, public Interface, public Core
 	{
-		SocketHolder(AllocatorT<SocketHolder> Allo, Context::PtrT ContextPtr, asio::io_context& Context)
-			: AllocatorT<SocketHolder>(std::move(Allo)), Interface(Allo), ContextPtr(std::move(ContextPtr)), Core(Context) {}
+		template<typename ...AppendPars>
+		SocketHolder(AllocatorT<SocketHolder> Allo, Context::PtrT ContextPtr, asio::io_context& Context, AppendPars&& ...AP)
+			: AllocatorT<SocketHolder>(std::move(Allo)), Interface(std::forward<AppendPars>(AP)...), ContextPtr(std::move(ContextPtr)), Core(Context) {}
 		Context::PtrT ContextPtr;
 
 		virtual void Release() const override

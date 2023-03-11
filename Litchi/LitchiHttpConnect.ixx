@@ -4,9 +4,20 @@ export module Litchi.Http;
 
 export import Litchi.Socket;
 
-namespace Litchi
+export namespace Litchi::Http
 {
-	
+	struct RequestMethodT
+	{
+		Get,
+	};
+
+	struct RequestOptionT
+	{
+		bool KeekAlive = true;
+		std::u8string_view AcceptFormat;
+	};
+
+
 	struct Http11Agency : protected SocketAgency
 	{
 
@@ -14,18 +25,42 @@ namespace Litchi
 		using SocketAgency::SubRef;
 		using SocketAgency::GetCurrentIpAdress;
 
+		bool IsConnecting() const { return SocketAgency::IsConnecting(); }
+		bool IsSending() const { return SocketAgency::IsSending(); }
+		bool IsReceiving() const { return SocketAgency::IsReceiving(); }
+
 		void AddRef() const { SocketAgency::AddRef(); }
 		void SubRef() const { SocketAgency::SubRef(); }
 
-		Http11Agency(AllocatorT<Http11Agency> Alloctaor) : SocketAgency(Allocator) {}
+		Http11Agency(AllocatorT<Http11Agency> Alloctaor = {})
+			: CurrentSendingStack(Allocator), SendingStack(Allocator), 
+		{}
 
-		std::vector<std::byte, AllocatorT<std::byte>> Receive;
+		template<typename RespondFun>
+		void Send(RequestMethodT Method, RequestOptionT Option, std::span<std::byte> TempBuffer, RespondFunc)
+			requires(std::is_invocable_v<RespondFunction, ErrorT, std::size_t, Http11Agency&>)
+		{
+			if()
+		}
 
-		virtual std::u8string_view GetCurrentIpAdress() const { return u8""; };
+	protected:
+
+		bool IsContinueReceiving = false;
+		std::vector<std::byte, AllocatorT<std::byte>> CurrentSendingStack;
+		std::vector<std::byte, AllocatorT<std::byte>> SendingStack;
+		std::vector<std::size_t, AllocatorT<std::size_t>> SendingCount;
+
+		using FuncT = std::function<void(std::error_code const&, std::size_t Read, Http11Agency& Agency)>;
+
+		std::deque<FuncT, AllocatorT<FuncT>> SendingRespond;
+		Misc::IndexSpan<> SendIndex;
+		std::vector<std::byte, AllocatorT<std::byte>> ReceiveStack;
+		std::deque<FuncT, AllocatorT<FuncT>> ReceiveRspond;
+		Misc::IndexSpan<> ReceiveIndex;
 
 	};
 
-
+	/*
 	struct Http11Client : protected TcpSocket
 	{
 
@@ -495,13 +530,16 @@ namespace Litchi
 
 		friend struct IntrusiceObjWrapper;
 	};
+	*/
 }
 
 namespace Potato::StrFormat
 {
+	/*
 	template<>
 	struct Scanner<Litchi::Http11Client::HexChunkedContentCount, char8_t>
 	{
 		bool Scan(std::u8string_view Par, Litchi::Http11Client::HexChunkedContentCount& Input);
 	};
+	*/
 }

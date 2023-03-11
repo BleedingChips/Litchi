@@ -96,7 +96,7 @@ export namespace Litchi
 		void AddRef() const { RefCount.AddRef(); }
 		void SubRef() const { if (RefCount.SubRef()) { Release(); } }
 
-		SocketAgency(AllocatorT<SocketAgency> Allocator) {}
+		SocketAgency() {}
 
 	protected:
 
