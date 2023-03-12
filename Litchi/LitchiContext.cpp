@@ -5,6 +5,7 @@ module;
 
 module Litchi.Context;
 import Litchi.Socket;
+import Litchi.Http;
 
 namespace Litchi
 {
@@ -87,12 +88,20 @@ namespace Litchi
 			Threads.clear();
 		}
 
-		virtual Socket CreateIpTcpSocket()
+		virtual Socket CreateIpTcpSocket() override
 		{
 			AllocatorT<SocketHolder<SocketAgency, TcpSocketExecuter>> Allo = *this;
 			auto P = Allo.allocate(1);
 			auto K = new (P) SocketHolder<SocketAgency, TcpSocketExecuter>{std::move(Allo), this, IOContext};
 			return Socket{ SocketAgency ::PtrT{K}};
+		}
+
+		virtual Http11 CreateHttp11(AllocatorT<std::byte> Allocator) override
+		{
+			AllocatorT<SocketHolder<Http11Agency, TcpSocketExecuter>> Allo = *this;
+			auto P = Allo.allocate(1);
+			auto K = new (P) SocketHolder<Http11Agency, TcpSocketExecuter>{std::move(Allo), this, IOContext, std::move(Allocator)};
+			return Http11{ Http11Agency::PtrT{K} };
 		}
 
 	protected:

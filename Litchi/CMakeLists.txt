@@ -8,8 +8,7 @@ add_library(
 	"LitchiContext.cpp"
 	"LitchiSocketExecutor.h"
 	"LitchiSocketExecutor.cpp"
-	
-	#"LitchiSocketConnect.cpp"
+	"LitchiHttpConnect.cpp"
 )
 
 target_sources(
@@ -18,14 +17,9 @@ target_sources(
 	FILES
 		"LitchiCompression.ixx"
 		"LitchiContext.ixx"
-		#[[
-		"LitchiSocketConnect_Define.ixx"
-		"LitchiSocketConnect.ixx"
-		"LitchiHttpConnect_Define.ixx"
-		"LitchiHttpConnect.ixx"
-		]]
 		"LitchiMemory.ixx"
 		"LitchiSocketConnect.ixx"
+		"LitchiHttpConnect.ixx"
 )
 
 

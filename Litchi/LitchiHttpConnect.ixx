@@ -2,24 +2,60 @@ module;
 
 export module Litchi.Http;
 
+export import Potato.Format;
 export import Litchi.Socket;
 
-export namespace Litchi::Http
+export namespace Litchi
 {
-	struct RequestMethodT
+	enum class HttpMethodT
 	{
 		Get,
 	};
 
-	struct RequestOptionT
+	struct HttpTargetT
 	{
-		bool KeekAlive = true;
-		std::u8string_view AcceptFormat;
+		HttpMethodT Method = HttpMethodT::Get;
+		std::u8string_view Target = u8"/";
+		std::u8string_view ContextType;
+		std::u8string_view ContextEncoding;
+		std::span<std::byte> Context;
+		bool ChunkedContext = false;
 	};
 
+	struct HttpOptionT
+	{
+		bool KeekAlive = true;
+		std::u8string_view Accept;
+		std::u8string_view AcceptEncoding = u8"gzip";
+		std::u8string_view AcceptCharset = u8"utf-8";
+	};
+
+	struct HttpContextT
+	{
+		std::u8string_view Cookie;
+	};
+
+	struct HttpRespondT
+	{
+		std::size_t RespondCode;
+		std::u8string_view Head;
+		std::span<std::byte const> Context;
+	};
+
+	
+	/*
+	auto FindHeadSize(std::u8string_view Str) -> std::optional<std::size_t>;
+	auto FindHeadOptionalValue(std::u8string_view Key, std::u8string_view Head) -> std::optional<std::u8string_view>;
+	auto FindHeadContentLength(std::u8string_view Head) -> std::optional<std::size_t>;
+	auto FindSectionLength(std::u8string_view Str) -> std::optional<std::size_t>;
+	auto IsChunkedContent(std::u8string_view Head) -> bool;
+	auto IsResponseHead(std::u8string_view Head) -> bool;
+	auto IsResponseHeadOK(std::u8string_view Head) -> bool;
+	*/
 
 	struct Http11Agency : protected SocketAgency
 	{
+		using PtrT = Potato::Misc::IntrusivePtr<Http11Agency>;
 
 		using SocketAgency::AddRef;
 		using SocketAgency::SubRef;
@@ -32,33 +68,130 @@ export namespace Litchi::Http
 		void AddRef() const { SocketAgency::AddRef(); }
 		void SubRef() const { SocketAgency::SubRef(); }
 
-		Http11Agency(AllocatorT<Http11Agency> Alloctaor = {})
-			: CurrentSendingStack(Allocator), SendingStack(Allocator), 
+		Http11Agency(AllocatorT<Http11Agency> Allocator = {})
+			: SendingBuffer(Allocator), ReceiveBuffer(Allocator)
 		{}
 
 		template<typename RespondFun>
-		void Send(RequestMethodT Method, RequestOptionT Option, std::span<std::byte> TempBuffer, RespondFunc)
-			requires(std::is_invocable_v<RespondFunction, ErrorT, std::size_t, Http11Agency&>)
+		bool AsyncConnect(std::u8string_view Host, RespondFun Fun)
+			requires(std::is_invocable_v<RespondFun, ErrorT, std::size_t, Http11Agency&>)
 		{
-			if()
+			if (SocketAgency::AbleToConnect())
+			{
+				std::u8string THost{Host};
+				SocketAgency::AsyncConnect(
+					Host,
+					u8"Http",
+					[Fun = std::move(Fun), THost = std::move(THost)](ErrorT Error, SocketAgency& Age) {
+						auto HttpAge = static_cast<Http11Agency&>(Age);
+						if(Error == ErrorT::None)
+							HttpAge.Host = std::move(THost);
+						Fun(Error, HttpAge);
+					}
+				);
+				return true;
+			}
+			Fun(ErrorT::ChannelOccupy, *this);
+			return false;
 		}
+
+		template<typename RespondFun>
+		bool AsyncSend(HttpTargetT Target, HttpOptionT Option, HttpContextT Context, RespondFun Res)
+			requires(std::is_invocable_v<RespondFun, ErrorT, std::size_t, Http11Agency&>)
+		{
+			if (SocketAgency::AbleToSend())
+			{
+				SendingBuffer.clear();
+				SendingBuffer.resize(FormatHttpRequestSize(Target, Option, Context));
+				FormatHttpRequest(SendingBuffer, Target, Option, Context);
+				SocketAgency::AsyncSend(std::span(SendingBuffer), [Res = std::move(Res)](ErrorT Err, std::size_t Send, SocketAgency& Agency) {
+					return Res(Err, Send, static_cast<Http11Agency&>(Agency));
+				});
+				return true;
+			}
+			Res(ErrorT::ChannelOccupy, 0, *this);
+			return false;
+		}
+
+		template<typename RespondFun>
+		bool AsyncReceive(RespondFun Func)
+			requires(std::is_invocable_v<RespondFun, ErrorT, HttpRespondT, Http11Agency&>)
+		{
+			if (ReceivedIndex.Count() != 0)
+			{
+				auto Re = TranslateRespondT(ReceivedIndex.Slice(ReceiveBuffer));
+				if (Re.has_value())
+				{
+					auto [C, Respond] = *Re;
+					ReceivedIndex.Offset += C;
+					ReceivedIndex.Length -= C;
+					Func(ErrorT::None, Respond, *this);
+					return true;
+				}
+			}
+
+			if (SocketAgency::AbleToRecive())
+			{
+
+				if (ReceivedIndex.Offset * 2 > ReceivedIndex.Count())
+				{
+					ReceiveBuffer.erase(ReceiveBuffer.begin(), ReceiveBuffer.begin() + ReceivedIndex.Offset);
+					ReceivedIndex.Offset = 0;
+				}
+
+				ReceiveExecute(std::move(Func));
+				return true;
+			}
+			
+			Func(ErrorT::ChannelOccupy, RespondT{}, *this);
+			return false;
+		}
+
+		static std::optional<std::tuple<std::size_t, RespondT>> TranslateRespondT(std::span<std::byte> Output);
 
 	protected:
 
-		bool IsContinueReceiving = false;
-		std::vector<std::byte, AllocatorT<std::byte>> CurrentSendingStack;
-		std::vector<std::byte, AllocatorT<std::byte>> SendingStack;
-		std::vector<std::size_t, AllocatorT<std::size_t>> SendingCount;
+		std::size_t FormatHttpRequestSize(RequestTargetT Target, RequestOptionT Option, RequestContextT Context);
+		std::size_t FormatHttpRequest(RequestTargetT Target, RequestOptionT Option, RequestContextT Context);
 
-		using FuncT = std::function<void(std::error_code const&, std::size_t Read, Http11Agency& Agency)>;
+		template<typename RespondFunc>
+		void ReceiveExecute(RespondFunc Func)
+		{
+			ReceiveBuffer.resize(ReceiveBuffer.size() + 4068);
+			SocketAgency::AsyncReceiveSome(std::span(ReceiveBuffer).subspan(ReceivedIndex.End()), 
+				[Func = std::move(Func)](ErrorT EC, std::size_t Receive, SocketAgency& Agency) {
+					ReceivedIndex.Length += Receive;
+					ReceiveBuffer.resize(ReceivedIndex.End());
+					if (EC == ErrorT::None)
+					{
+						auto Re = TranslateRespondT(ReceivedIndex.Slice(ReceiveBuffer));
+						if (Re.has_value())
+						{
+							auto [C, Respond] = *Re;
+							ReceivedIndex.Offset += C;
+							ReceivedIndex.Length -= C;
+							Func(ErrorT::None, Respond, *this);
+						}
+						else {
+							ReceiveExecute(std::move(Func));
+						}
+					}
+					else {
+						ReceiveBuffer.clear();
+						ReceivedIndex = {};
+						Func(EC, {}, static_cast<Http11Agency&>(Agency));
+					}
+				}
+			);
+		}
 
-		std::deque<FuncT, AllocatorT<FuncT>> SendingRespond;
-		Misc::IndexSpan<> SendIndex;
-		std::vector<std::byte, AllocatorT<std::byte>> ReceiveStack;
-		std::deque<FuncT, AllocatorT<FuncT>> ReceiveRspond;
-		Misc::IndexSpan<> ReceiveIndex;
-
+		std::u8string Host;
+		std::vector<std::byte, AllocatorT<std::byte>> SendingBuffer;
+		std::vector<std::byte, AllocatorT<std::byte>> ReceiveBuffer;
+		Potato::Misc::IndexSpan<> ReceivedIndex;
 	};
+
+	using Http11 = AgencyTWrapper<Http11Agency>;
 
 	/*
 	struct Http11Client : protected TcpSocket

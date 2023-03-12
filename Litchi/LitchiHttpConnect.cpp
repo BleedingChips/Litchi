@@ -1,31 +1,148 @@
-#include "Litchi/LitchiHttpConnect.h"
-#include "Potato/PotatoStrFormat.h"
-#include "Litchi/LitchiCompression.h"
+module;
 
-namespace Potato::StrFormat
+module Litchi.Http;
+
+namespace Potato::Format
 {
-
-	constexpr auto Trans(Litchi::Http11Client::RequestMethodT Method) -> std::u8string_view
+	constexpr auto Trans(Litchi::HttpMethodT Method) -> std::u8string_view
 	{
 		switch (Method)
 		{
-		case Litchi::Http11Client::RequestMethodT::GET:
+		case Litchi::HttpMethodT::Get:
 			return u8"GET";
 		}
 		return {};
 	}
 
 	template<>
-	struct Formatter<Litchi::Http11Client::RequestMethodT, char8_t>
+	struct Formatter<Litchi::HttpMethodT, char8_t>
 	{
-		constexpr static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::Http11Client::RequestMethodT Input) {
+		constexpr static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpMethodT Input) {
 			auto Tar = Trans(Input);
 			std::copy_n(Tar.data(), Tar.size() * sizeof(char8_t), Output.data());
 			return Tar.size();
 		}
-		constexpr static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Parameter, Litchi::Http11Client::RequestMethodT Input) {
+		constexpr static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Parameter, Litchi::HttpMethodT Input) {
 			auto Tar = Trans(Input);
 			return Tar.size();
+		}
+	};
+
+	template<>
+	struct Formatter<Litchi::HttpTargetT, char8_t>
+	{
+		static constexpr std::u8string_view For1 = u8"{} {} {}\r\n";
+		static constexpr std::u8string_view For2 = u8"Content-Type: {}\r\n";
+		static constexpr std::u8string_view For3 = u8"Content-Length: {}\r\n";
+		static constexpr std::u8string_view For4 = u8"Transfer-Encoding: chunked\r\n";
+
+		constexpr static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpTargetT const& Input)
+		{
+			auto Count = Potato::Format::FormatToUnSafe(Output, For1, Input.Method, Input.Target, Pars);
+			if(!Count.has_value())
+				return {};
+			Output = Output.subspan(*Count);
+			if (!Input.ContextType.empty())
+			{
+				auto Count2 = Format::FormatToUnSafe(Output, For2, Input.ContextType);
+				*Count += *Count2;
+				Output = Output.subspan(*Count2);
+				if (Input.ChunkedContext)
+				{
+					auto Count3 = Potato::Format::DirectFormatToUnSafe<char8_t>(Output, {}, For4);
+					*Count += *Count3;
+				}
+			}
+			return Count;
+		}
+
+		constexpr static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpTargetT const& Input)
+		{
+			auto Count = Format::FormatSize(For1, Input.Method, Input.Target, Pars);
+			if (!Count.has_value())
+				return {};
+			if (!Input.ContextType.empty())
+			{
+				auto Count2 = Format::FormatSize(For2, Input.ContextType);
+				*Count += *Count2;
+				if (Input.ChunkedContext)
+				{
+					auto Count3 = Format::DirectFormatSize<char8_t>({}, For4);
+					*Count += *Count3;
+				}
+			}
+			return Count;
+		}
+	};
+
+	template<>
+	struct Formatter<Litchi::HttpOptionT, char8_t>
+	{
+		static constexpr std::u8string_view For1 = u8"AcceptEncoding: {}\r\nAcceptCharset: {}\r\n";
+		static constexpr std::u8string_view For2 = u8"Connection: keep-alive\r\n";
+		static constexpr std::u8string_view For3 = u8"Accept: {}\r\n";
+
+		constexpr static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input)
+		{
+			auto Count = Format::FormatToUnSafe(Output, For1, Input.AcceptEncoding, Input.AcceptCharset);
+			if (!Count.has_value())
+				return {};
+			Output = Output.subspan(*Count);
+			if (Input.KeekAlive)
+			{
+				auto Count3 = Format::FormatToUnSafe(Output, For2);
+				Output = Output.subspan(*Count3);
+				*Count += *Count;
+			}
+			if (!Input.Accept.empty())
+			{
+				auto Count3 = Format::FormatToUnSafe<char8_t>(Output, For3, Input.Accept);
+				Output = Output.subspan(*Count3);
+				*Count += *Count;
+			}
+			return Count;
+		}
+
+		constexpr static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input)
+		{
+			auto Count = Format::FormatSize(For1, Input.AcceptEncoding, Input.AcceptCharset);
+			if (!Count.has_value())
+				return {};
+			if (Input.KeekAlive)
+			{
+				auto Count3 = Format::FormatSize(For2);
+				*Count += *Count;
+			}
+			if (!Input.Accept.empty())
+			{
+				auto Count3 = Format::FormatSize(For3, Input.Accept);
+				*Count += *Count;
+			}
+			return Count;
+		}
+	};
+
+	template<>
+	struct Formatter<Litchi::HttpContextT char8_t>
+	{
+		static constexpr std::u8string_view For1 = u8"Cookie: {}\r\n";
+
+		constexpr static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input)
+		{
+			if (!Input.Cookie.empty())
+			{
+				return Format::FormatToUnSafe(Output, For1, Input.Cookie);
+			}
+			return 0;
+		}
+
+		constexpr static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input)
+		{
+			if (!Input.Cookie.empty())
+			{
+				return Format::FormatSize(For1, Input.Cookie);
+			}
+			return 0;
 		}
 	};
 }
@@ -33,9 +150,19 @@ namespace Potato::StrFormat
 namespace Litchi
 {
 
-	constexpr std::u8string_view NoContentFormatter = u8"{} {} HTTP/1.1\r\nHost: {}\r\nAccept: text/html\r\nAccept-Encoding: gzip\r\nAccept-Charset: utf-8\r\n\r\n";
-	constexpr std::u8string_view HeadContentFormatter = u8"{} {} HTTP/1.1\r\nHost: {}\r\nAccept: text/html\r\nAccept-Encoding: gzip\r\nAccept-Charset: utf-8\r\nContent-Type: {}\r\nContent-Type: {}\r\n\r\n";
+	std::size_t Http11Agency::FormatHttpRequestSize(HttpTargetT Target, HttpOptionT Option, HttpContextT Context)
+	{
+		if (Target.Context.empty())
+		{
+			return Potato::Format::FormatSize();
+		}
+		else {
 
+		}
+		
+	}
+
+	/*
 	auto Http11Client::RequestLength(RequestMethodT Method, std::u8string_view Target, std::u8string_view Host, std::span<std::byte const> Content, std::u8string_view ContentType) -> std::size_t
 	{
 		if (Content.empty() || ContentType.empty())
@@ -338,11 +465,12 @@ namespace Litchi
 		}
 		return Fur.get();
 	}
+	*/
 }
 
 namespace Potato::StrFormat
 {
-
+	/*
 	bool Scanner<Litchi::Http11Client::HexChunkedContentCount, char8_t>::Scan(std::u8string_view Par, Litchi::Http11Client::HexChunkedContentCount& Input)
 	{
 		Input.Value = 0;
@@ -364,4 +492,5 @@ namespace Potato::StrFormat
 		}
 		return true;
 	}
+	*/
 }

@@ -2,8 +2,10 @@ module;
 
 export module Litchi.Context;
 
+export import Potato.STD;
 export import Litchi.Memory;
 export import Litchi.Socket;
+export import Litchi.Http;
 
 export namespace Litchi
 {
@@ -17,7 +19,9 @@ export namespace Litchi
 		using PtrT = Potato::Misc::IntrusivePtr<Context>;
 
 		static auto CreateBackEnd(std::size_t ThreadCount = 1, AllocatorT<Context> Allocator = {}) -> PtrT;
+		
 		virtual Socket CreateIpTcpSocket() = 0;
+		virtual Http11 CreateHttp11(AllocatorT<std::byte> Allocator = {}) = 0;
 	};
 
 

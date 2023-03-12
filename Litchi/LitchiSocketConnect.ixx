@@ -11,6 +11,7 @@ export namespace Litchi
 	enum class ErrorT : uint8_t
 	{
 		None = 0,
+		ChannelOccupy,
 		Unknow,
 	};
 
@@ -19,7 +20,7 @@ export namespace Litchi
 		using PtrT = Potato::Misc::IntrusivePtr<SocketAgency>;
 
 		template<typename RespondFunction>
-		auto Connect(std::u8string_view Host, std::u8string_view Service, RespondFunction Func) -> bool
+		auto AsyncConnect(std::u8string_view Host, std::u8string_view Service, RespondFunction Func) -> void
 			requires(std::is_invocable_v<RespondFunction, ErrorT, SocketAgency&>)
 		{
 			if (AbleToConnect())
@@ -35,11 +36,14 @@ export namespace Litchi
 				});
 				return true;
 			}
-			return false;
+			else {
+				Func(ErrorT::ChannelOccupy, *this);
+				return false;
+			}
 		}
 
 		template<typename RespondFunction>
-		auto Send(std::span<std::byte const> SendBuffer, RespondFunction Func) -> bool
+		auto AsyncSend(std::span<std::byte const> SendBuffer, RespondFunction Func) -> bool
 			requires(std::is_invocable_v<RespondFunction, ErrorT, std::size_t, SocketAgency&>)
 		{
 			if (AbleToSend())
@@ -55,11 +59,12 @@ export namespace Litchi
 				});
 				return true;
 			}
+			Func(ErrorT::ChannelOccupy, 0, *this);
 			return false;
 		}
 
 		template<typename RespondFunction>
-		auto ReceiveSome(std::span<std::byte const> PersistenceBuffer, RespondFunction Func) -> bool
+		auto AsyncReceiveSome(std::span<std::byte const> PersistenceBuffer, RespondFunction Func) -> bool
 			requires(std::is_invocable_v<RespondFunction, ErrorT, std::size_t, SocketAgency&>)
 		{
 			if (AbleToReceive())
@@ -75,6 +80,7 @@ export namespace Litchi
 				});
 				return true;
 			}
+			Func(ErrorT::ChannelOccupy, 0, *this);
 			return false;
 		}
 
