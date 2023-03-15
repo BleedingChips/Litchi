@@ -2,6 +2,191 @@ module;
 
 module Litchi.Http;
 
+namespace Litchi
+{
+	struct HexChunkedContextCount
+	{
+		std::size_t Value;
+	};
+}
+
+namespace Potato::Format
+{
+	
+
+	template<>
+	struct Scanner<Litchi::HexChunkedContextCount, char8_t>
+	{
+		bool Scan(std::u8string_view Par, Litchi::HexChunkedContextCount& Input)
+		{
+			Input.Value = 0;
+			for (auto Ite : Par)
+			{
+				Input.Value *= 16;
+				if (Ite >= u8'0' && Ite <= u8'9')
+				{
+					Input.Value += (Ite - u8'0');
+				}
+				else if (Ite >= u8'a' && Ite <= u8'f')
+				{
+					Input.Value += 10 + (Ite - u8'a');
+				}
+				else if (Ite >= u8'A' && Ite <= u8'F')
+				{
+					Input.Value += 10 + (Ite - u8'A');
+				};
+			}
+			return true;
+		}
+	};
+}
+
+namespace Litchi
+{
+
+	auto FindHeadOptionalValue(std::u8string_view Key, std::u8string_view Head) -> std::optional<std::u8string_view>
+	{
+		constexpr std::u8string_view S1 = u8": ";
+		constexpr std::u8string_view S2 = u8"\r\n";
+		while (!Head.empty())
+		{
+			auto Index = Head.find(Key);
+			if (Index < Head.size())
+			{
+				Head = Head.substr(Index + Key.size());
+				Index = Head.find(S1);
+				if (Index < Head.size())
+				{
+					Head = Head.substr(Index + S1.size());
+					Index = Head.find(S2);
+					if (Index < Head.size())
+						return Head.substr(0, Index);
+				}
+			}
+			else
+				return {};
+		}
+		return {};
+	}
+
+	bool Http11Agency::TryGenerateRespond()
+	{
+		constexpr std::u8string_view Spe = u8"\r\n\r\n";
+		constexpr std::u8string_view SubSpe = u8"\r\n";
+
+		while (true)
+		{
+			auto TotalBuffer = ReceiveBufferIndex.Slice(ReceiveBuffer);
+
+			if (!TotalBuffer.empty())
+			{
+				switch (Status)
+				{
+				case StatusT::WaitHead:
+				{
+					auto Str = std::u8string_view{ reinterpret_cast<char8_t const*>(TotalBuffer.data()), TotalBuffer.size() };
+					auto Index = Str.find(Spe);
+					if (Index < Str.size())
+					{
+						CurrentRespond.insert(CurrentRespond.end(), TotalBuffer.begin(), TotalBuffer.begin() + Index);
+						RespondHeadLength = Index;
+						Str = Str.substr(0, Index);
+						ReceiveBufferIndex = ReceiveBufferIndex.Sub(Index + Spe.size());
+						auto P = FindHeadOptionalValue(u8"Transfer-Encoding", Str);
+						if (P.has_value() && *P == u8"chunked")
+						{
+							Status = StatusT::WaitChunkedContext;
+						}
+						else {
+							auto P = FindHeadOptionalValue(u8"Context-Length", Str);
+							if (P.has_value())
+							{
+								Potato::Format::DirectScan(*P, ContextLength);
+								Status = StatusT::WaitHeadContext;
+							}
+							else {
+								return true;
+							}
+						}
+					}
+					else {
+						return false;
+					}
+				}
+				break;
+				case StatusT::WaitHeadContext:
+				{
+					if (TotalBuffer.size() >= ContextLength)
+					{
+						CurrentRespond.insert(CurrentRespond.end(), TotalBuffer.begin(), TotalBuffer.begin() + ContextLength);
+						ReceiveBufferIndex = ReceiveBufferIndex.Sub(ContextLength);
+						return true;
+					}
+					else {
+						CurrentRespond.insert(CurrentRespond.end(), TotalBuffer.begin(), TotalBuffer.end());
+						ReceiveBufferIndex = ReceiveBufferIndex.Sub(ReceiveBufferIndex.Count());
+						return false;
+					}
+				}
+				break;
+				case StatusT::WaitChunkedContextHead:
+				{
+					auto Str = std::u8string_view{ reinterpret_cast<char8_t const*>(TotalBuffer.data()), TotalBuffer.size() };
+					auto Index = Str.find(SubSpe);
+					if (Index < Str.size())
+					{
+						Str = Str.substr(Index);
+						HexChunkedContextCount Count;
+						Potato::Format::DirectScan(Str, Count);
+						ContextLength = Count.Value;
+						ReceiveBufferIndex = ReceiveBufferIndex.Sub(Index + SubSpe.size());
+						Status = StatusT::WaitChunkedContext;
+					}
+					else {
+						return false;
+					}
+				}
+				break;
+				case StatusT::WaitChunkedContext:
+				{
+					if (TotalBuffer.size() >= ContextLength)
+					{
+						CurrentRespond.insert(CurrentRespond.end(), TotalBuffer.begin(), TotalBuffer.begin() + ContextLength);
+						ReceiveBufferIndex = ReceiveBufferIndex.Sub(ContextLength);
+						Status = StatusT::WaitChunkedEnd;
+					}
+					else {
+						CurrentRespond.insert(CurrentRespond.end(), TotalBuffer.begin(), TotalBuffer.end());
+						ReceiveBufferIndex = ReceiveBufferIndex.Sub(ReceiveBufferIndex.Count());
+						return false;
+					}
+				}
+				break;
+				case StatusT::WaitChunkedEnd:
+				{
+					if (TotalBuffer.size() >= SubSpe.size())
+					{
+						ReceiveBufferIndex = ReceiveBufferIndex.Sub(SubSpe.size());
+						return true;
+					}
+					else {
+						return false;
+					}
+				}
+				break;
+				}
+			}
+			else {
+				return false;
+			}
+		}
+	}
+
+
+}
+
+
+/*
 namespace Potato::Format
 {
 	constexpr auto Trans(Litchi::HttpMethodT Method) -> std::u8string_view
@@ -465,8 +650,8 @@ namespace Litchi
 		}
 		return Fur.get();
 	}
-	*/
 }
+*/
 
 namespace Potato::StrFormat
 {

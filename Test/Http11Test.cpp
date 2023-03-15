@@ -1,11 +1,42 @@
 import Litchi.Context;
+import Potato.STD;
+
+using namespace Litchi;
 
 int main()
 {
 	
-	auto Ptr = Litchi::Context::CreateBackEnd();
+	std::cout<< "Begin !" << std::endl;
+
+	auto Ptr = Context::CreateBackEnd();
 
 	auto I = Ptr->CreateHttp11();
+
+	std::promise<void> P;
+
+	auto Fur = P.get_future();
+
+	I.Lock([&](Http11Agency& Age){
+		std::cout << "1" << std::endl;
+		Age.AsyncConnect(u8"www.baidu.com", [&](ErrorT Error, Http11Agency& Age) {
+			std::cout << "2" << std::endl;
+			Age.AsyncRequestHeadOnly(HttpMethodT::Get, {}, {}, {}, [&](
+				ErrorT Error, std::size_t Readed, Http11Agency& Age
+			)
+			{
+				std::cout << "3" << std::endl;
+				Age.AsyncReceive([&](ErrorT Error, HttpRespondT Res, Http11Agency& Age){
+					std::cout << "4" << std::endl;
+					volatile int oi = 0;
+					P.set_value();
+				});
+			});
+		});
+	});
+
+	
+
+	Fur.get();
 
 	return 0;
 }

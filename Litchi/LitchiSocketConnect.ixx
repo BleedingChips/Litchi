@@ -20,17 +20,17 @@ export namespace Litchi
 		using PtrT = Potato::Misc::IntrusivePtr<SocketAgency>;
 
 		template<typename RespondFunction>
-		auto AsyncConnect(std::u8string_view Host, std::u8string_view Service, RespondFunction Func) -> void
+		auto AsyncConnect(std::u8string_view Host, std::u8string_view Service, RespondFunction Func) -> bool
 			requires(std::is_invocable_v<RespondFunction, ErrorT, SocketAgency&>)
 		{
 			if (AbleToConnect())
 			{
 				Connecting = true;
 				AddRef();
-				ConnectExe(Host, Service, [Func = std::move(Func), this](uint8_t Error) {
-					Lock([&]() {
+				ConnectExe(Host, Service, [Func = std::move(Func), this](ErrorT Error) {
+					Lock([&, this]() {
 						Connecting = false;
-						Func(static_cast<ErrorT>(Error), *this);
+						Func(Error, *this);
 						SubRef();
 					});
 				});
@@ -50,10 +50,10 @@ export namespace Litchi
 			{
 				Sending = true;
 				AddRef();
-				SendExe(SendBuffer, [Func = std::move(Func), this](uint8_t Error, std::size_t SendSize) {
+				SendExe(SendBuffer, [Func = std::move(Func), this](ErrorT Error, std::size_t SendSize) {
 					Lock([&]() {
 						Sending = false;
-						Func(static_cast<ErrorT>(Error), SendSize, *this);
+						Func(Error, SendSize, *this);
 						SubRef();
 					});
 				});
@@ -64,17 +64,17 @@ export namespace Litchi
 		}
 
 		template<typename RespondFunction>
-		auto AsyncReceiveSome(std::span<std::byte const> PersistenceBuffer, RespondFunction Func) -> bool
+		auto AsyncReceiveSome(std::span<std::byte> PersistenceBuffer, RespondFunction Func) -> bool
 			requires(std::is_invocable_v<RespondFunction, ErrorT, std::size_t, SocketAgency&>)
 		{
 			if (AbleToReceive())
 			{
 				Receiving = true;
 				AddRef();
-				ReceiveExe(PersistenceBuffer, [Func = std::move(Func), this](uint8_t Error, std::size_t ReceivedSize) {
+				ReceiveSomeExe(PersistenceBuffer, [Func = std::move(Func), this](ErrorT Error, std::size_t ReceivedSize) {
 					Lock([&]() {
 						Receiving = false;
-						Func(static_cast<ErrorT>(Error), ReceivedSize, *this);
+						Func(Error, ReceivedSize, *this);
 						SubRef();
 					});
 				});
@@ -112,7 +112,6 @@ export namespace Litchi
 
 		template<typename RespondFunction>
 		auto Lock(RespondFunction&& Func)
-			requires(std::is_invocable_v<RespondFunction>)
 		{
 			auto Lg = std::lock_guard(SocketMutex);
 			Func();
@@ -138,33 +137,35 @@ export namespace Litchi
 		virtual void CancelExe() = 0;
 		virtual void Release() const = 0;
 		virtual ~SocketAgency() {}
+
+		template<typename Type>
+		friend struct AgencyTWrapper;
 	};
 
 	template<typename AgencyT>
-	struct AgencyTWrapper : protected AgencyT::PtrT
+	struct AgencyWrapperT : protected AgencyT::PtrT
 	{
 		template<typename RespondFunc>
-		bool Lock(RespondFunc&& Func) requires(std::is_invocable_v<SocketAgency&>)
+		bool Lock(RespondFunc&& Func) requires(std::is_invocable_v<RespondFunc, AgencyT&>)
 		{
-			if (SocketAgency::PtrT::operator bool())
+			if (*this)
 			{
-				auto& Ref = *this;
-				Ref.Lock([&]() {
-					std::forward<RespondFunc>(Func)(this->operator*());
-					});
+				AgencyT::PtrT::GetPointer()->Lock([&]() {
+					std::forward<RespondFunc>(Func)(*AgencyT::PtrT::GetPointer());
+				});
 				return true;
 			}
 			return false;
 		}
-		AgencyTWrapper() = default;
-		AgencyTWrapper(AgencyTWrapper&&) = default;
-		AgencyTWrapper(AgencyTWrapper const&) = default;
-		AgencyTWrapper(AgencyT::PtrT Ptr) : AgencyT::PtrT(std::move(Ptr)) {}
-		AgencyTWrapper& operator=(AgencyTWrapper const&) = default;
-		AgencyTWrapper& operator=(AgencyTWrapper&&) = default;
+		AgencyWrapperT() = default;
+		AgencyWrapperT(AgencyWrapperT&&) = default;
+		AgencyWrapperT(AgencyWrapperT const&) = default;
+		AgencyWrapperT(AgencyT::PtrT Ptr) : AgencyT::PtrT(std::move(Ptr)) {}
+		AgencyWrapperT& operator=(AgencyWrapperT const&) = default;
+		AgencyWrapperT& operator=(AgencyWrapperT&&) = default;
 	};
 
-	using Socket = AgencyTWrapper<SocketAgency>;
+	using Socket = AgencyWrapperT<SocketAgency>;
 
 
 	/*
