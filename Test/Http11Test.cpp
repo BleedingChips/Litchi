@@ -1,5 +1,7 @@
 import Litchi.Context;
+import Litchi.Compression;
 import Potato.STD;
+import Potato.Document;
 
 using namespace Litchi;
 
@@ -27,7 +29,25 @@ int main()
 				std::cout << "3" << std::endl;
 				Age.AsyncReceive([&](ErrorT Error, HttpRespondT Res, Http11Agency& Age){
 					std::cout << "4" << std::endl;
-					volatile int oi = 0;
+					Potato::Document::Writer Write(u8"RequestHead.txt");
+					Write.Write(Res.Head);
+					Write.Flush();
+
+					auto P22 = Http11Agency::DecompressContent(Res.Head, Res.Context);
+					std::u8string_view RespondContext;
+					if (P22.has_value())
+					{
+						RespondContext = { reinterpret_cast<char8_t const*>(P22->data()), P22->size() };
+					}
+					else {
+						RespondContext = { reinterpret_cast<char8_t const*>(Res.Context.data()), Res.Context.size() };
+					}
+
+					
+					Potato::Document::Writer Write2(u8"RequestContext.txt");
+					Write2.Write(RespondContext);
+					Write2.Flush();
+
 					P.set_value();
 				});
 			});

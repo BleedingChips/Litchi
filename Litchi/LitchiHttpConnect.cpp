@@ -1,6 +1,9 @@
 module;
 
 module Litchi.Http;
+import Potato.Format;
+import Litchi.Compression;
+import Potato.Document;
 
 namespace Litchi
 {
@@ -12,7 +15,112 @@ namespace Litchi
 
 namespace Potato::Format
 {
-	
+
+	auto Trans(Litchi::HttpMethodT Method) -> std::u8string_view
+	{
+		switch (Method)
+		{
+		case Litchi::HttpMethodT::Get:
+			return u8"GET";
+		}
+		return {};
+	}
+
+	template<>
+	struct Formatter<Litchi::HttpMethodT, char8_t>
+	{
+		static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpMethodT Input);
+		static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Parameter, Litchi::HttpMethodT Input);
+	};
+
+	template<>
+	struct Formatter<Litchi::HttpOptionT, char8_t>
+	{
+		static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input);
+		static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input);
+	};
+
+	template<>
+	struct Formatter<Litchi::HttpContextT, char8_t>
+	{
+		static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input);
+		static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input);
+	};
+
+	std::optional<std::size_t> Formatter<Litchi::HttpMethodT, char8_t>::Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpMethodT Input) {
+		auto Tar = Trans(Input);
+		std::copy_n(Tar.data(), Tar.size() * sizeof(char8_t), Output.data());
+		return Tar.size();
+	}
+	std::optional<std::size_t> Formatter<Litchi::HttpMethodT, char8_t>::FormatSize(std::basic_string_view<char8_t> Parameter, Litchi::HttpMethodT Input) {
+		auto Tar = Trans(Input);
+		return Tar.size();
+	}
+
+	static constexpr std::u8string_view OptionFor1 = u8"AcceptEncoding: {}\r\nAcceptCharset: {}\r\n";
+	static constexpr std::u8string_view OptionFor2 = u8"Connection: keep-alive\r\n";
+	static constexpr std::u8string_view OptionFor3 = u8"Accept: {}\r\n";
+
+
+	std::optional<std::size_t> Formatter<Litchi::HttpOptionT, char8_t>::Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input)
+	{
+		auto Count = Format::FormatToUnSafe(Output, OptionFor1, Input.AcceptEncoding, Input.AcceptCharset);
+		if (!Count.has_value())
+			return {};
+		Output = Output.subspan(*Count);
+		if (Input.KeekAlive)
+		{
+			auto Count3 = Format::FormatToUnSafe(Output, OptionFor2);
+			Output = Output.subspan(*Count3);
+			*Count += *Count3;
+		}
+		if (!Input.Accept.empty())
+		{
+			auto Count3 = Format::FormatToUnSafe<char8_t>(Output, OptionFor3, Input.Accept);
+			Output = Output.subspan(*Count3);
+			*Count += *Count3;
+		}
+		return Count;
+	}
+
+	std::optional<std::size_t> Formatter<Litchi::HttpOptionT, char8_t>::FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input)
+	{
+		auto Count = Format::FormatSize(OptionFor1, Input.AcceptEncoding, Input.AcceptCharset);
+		if (!Count.has_value())
+			return {};
+		if (Input.KeekAlive)
+		{
+			auto Count3 = Format::FormatSize(OptionFor2);
+			*Count += *Count3;
+		}
+		if (!Input.Accept.empty())
+		{
+			auto Count3 = Format::FormatSize(OptionFor3, Input.Accept);
+			*Count += *Count3;
+		}
+		return Count;
+	}
+
+	static constexpr std::u8string_view ContextFor1 = u8"Cookie: {}\r\n";
+
+	std::optional<std::size_t> Formatter<Litchi::HttpContextT, char8_t>::Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input)
+	{
+		if (!Input.Cookie.empty())
+		{
+			return Format::FormatToUnSafe(Output, ContextFor1, Input.Cookie);
+		}
+		return 0;
+	}
+
+	std::optional<std::size_t> Formatter<Litchi::HttpContextT, char8_t>::FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input)
+	{
+		if (!Input.Cookie.empty())
+		{
+			return Format::FormatSize(ContextFor1, Input.Cookie);
+		}
+		return 0;
+	}
+
 
 	template<>
 	struct Scanner<Litchi::HexChunkedContextCount, char8_t>
@@ -69,6 +177,23 @@ namespace Litchi
 		return {};
 	}
 
+	static constexpr std::u8string_view HeadOnlyRequestFor = u8"{} {} HTTP/1.1\r\nHost: {}\r\n{}{}Content-Length: 0\r\n\r\n";
+
+	std::size_t Http11Agency::FormatSizeHeadOnlyRequest(HttpMethodT Method, std::u8string_view Target, HttpOptionT const& Optional, HttpContextT const& ContextT)
+	{
+		return *Potato::Format::FormatSize(HeadOnlyRequestFor, Method, Target, Host, Optional, ContextT);
+	}
+
+	std::size_t Http11Agency::FormatToHeadOnlyRequest(std::span<std::byte> Output, HttpMethodT Method, std::u8string_view Target, HttpOptionT const& Optional, HttpContextT const& ContextT)
+	{
+		auto Re = *Potato::Format::FormatToUnSafe({ reinterpret_cast<char8_t*>(Output.data()), Output.size() }, HeadOnlyRequestFor, Method, Target, Host, Optional, ContextT);
+		std::u8string_view Poi = { reinterpret_cast<char8_t*>(Output.data()), Output.size()};
+		Potato::Document::Writer W1 (u8"Send.txt");
+		W1.Write(Poi);
+		W1.Flush();
+		return Re;
+	}
+
 	bool Http11Agency::TryGenerateRespond()
 	{
 		constexpr std::u8string_view Spe = u8"\r\n\r\n";
@@ -98,7 +223,7 @@ namespace Litchi
 							Status = StatusT::WaitChunkedContext;
 						}
 						else {
-							auto P = FindHeadOptionalValue(u8"Context-Length", Str);
+							auto P = FindHeadOptionalValue(u8"Content-Length", Str);
 							if (P.has_value())
 							{
 								Potato::Format::DirectScan(*P, ContextLength);
@@ -182,7 +307,29 @@ namespace Litchi
 		}
 	}
 
-
+	std::optional<std::vector<std::byte>> Http11Agency::DecompressContent(std::u8string_view Head, std::span<std::byte const> Res)
+	{
+		auto Value = FindHeadOptionalValue(u8"Content-Encoding", Head);
+		if (Value.has_value())
+		{
+			if (*Value == u8"gzip")
+			{
+				std::vector<std::byte> Temp;
+				auto Output = GZipDecompress(Res, [&](GZipDecProperty const& Pro) -> std::span<std::byte> {
+					Temp.resize(Temp.size() - Pro.LastReceiveOutputSize + Pro.LastDecompressOutputSize);
+					auto Comm = std::max(Pro.UnDecompressSize * 3, std::size_t{ 256 });
+					Temp.resize(Temp.size() + Comm);
+					return std::span(Temp).subspan(Temp.size() - Comm);
+					});
+				if (Output.has_value())
+				{
+					Temp.resize(*Output);
+					return Temp;
+				}
+			}
+		}
+		return {};
+	}
 }
 
 

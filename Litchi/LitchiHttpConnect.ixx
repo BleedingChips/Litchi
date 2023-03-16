@@ -15,7 +15,7 @@ export namespace Litchi
 	struct HttpOptionT
 	{
 		bool KeekAlive = true;
-		std::u8string_view Accept;
+		std::u8string_view Accept = u8"text/html";
 		std::u8string_view AcceptEncoding = u8"gzip";
 		std::u8string_view AcceptCharset = u8"utf-8";
 	};
@@ -23,104 +23,6 @@ export namespace Litchi
 	struct HttpContextT
 	{
 		std::u8string_view Cookie;
-	};
-}
-
-export namespace Potato::Format
-{
-	constexpr auto Trans(Litchi::HttpMethodT Method) -> std::u8string_view
-	{
-		switch (Method)
-		{
-		case Litchi::HttpMethodT::Get:
-			return u8"GET";
-		}
-		return {};
-	}
-
-	template<>
-	struct Formatter<Litchi::HttpMethodT, char8_t>
-	{
-		constexpr static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpMethodT Input) {
-			auto Tar = Trans(Input);
-			std::copy_n(Tar.data(), Tar.size() * sizeof(char8_t), Output.data());
-			return Tar.size();
-		}
-		constexpr static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Parameter, Litchi::HttpMethodT Input) {
-			auto Tar = Trans(Input);
-			return Tar.size();
-		}
-	};
-
-	template<>
-	struct Formatter<Litchi::HttpOptionT, char8_t>
-	{
-		static constexpr std::u8string_view For1 = u8"AcceptEncoding: {}\r\nAcceptCharset: {}\r\n";
-		static constexpr std::u8string_view For2 = u8"Connection: keep-alive\r\n";
-		static constexpr std::u8string_view For3 = u8"Accept: {}\r\n";
-
-		constexpr static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input)
-		{
-			auto Count = Format::FormatToUnSafe(Output, For1, Input.AcceptEncoding, Input.AcceptCharset);
-			if (!Count.has_value())
-				return {};
-			Output = Output.subspan(*Count);
-			if (Input.KeekAlive)
-			{
-				auto Count3 = Format::FormatToUnSafe(Output, For2);
-				Output = Output.subspan(*Count3);
-				*Count += *Count;
-			}
-			if (!Input.Accept.empty())
-			{
-				auto Count3 = Format::FormatToUnSafe<char8_t>(Output, For3, Input.Accept);
-				Output = Output.subspan(*Count3);
-				*Count += *Count;
-			}
-			return Count;
-		}
-
-		constexpr static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input)
-		{
-			auto Count = Format::FormatSize(For1, Input.AcceptEncoding, Input.AcceptCharset);
-			if (!Count.has_value())
-				return {};
-			if (Input.KeekAlive)
-			{
-				auto Count3 = Format::FormatSize(For2);
-				*Count += *Count;
-			}
-			if (!Input.Accept.empty())
-			{
-				auto Count3 = Format::FormatSize(For3, Input.Accept);
-				*Count += *Count;
-			}
-			return Count;
-		}
-	};
-
-	template<>
-	struct Formatter<Litchi::HttpContextT, char8_t>
-	{
-		static constexpr std::u8string_view For1 = u8"Cookie: {}\r\n";
-
-		constexpr static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input)
-		{
-			if (!Input.Cookie.empty())
-			{
-				return Format::FormatToUnSafe(Output, For1, Input.Cookie);
-			}
-			return 0;
-		}
-
-		constexpr static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input)
-		{
-			if (!Input.Cookie.empty())
-			{
-				return Format::FormatSize(For1, Input.Cookie);
-			}
-			return 0;
-		}
 	};
 }
 
@@ -193,16 +95,15 @@ export namespace Litchi
 		bool AsyncRequestHeadOnly(HttpMethodT Method, std::u8string_view Target, HttpOptionT const& Optional, HttpContextT const& ContextT, RespondFun const& Func)
 			requires(std::is_invocable_v<RespondFun, ErrorT, std::size_t, Http11Agency&>)
 		{
-			constexpr std::u8string_view FormatPar = u8"{} {} HTTP/1.1\r\n{}{}\r\n";
+			constexpr std::u8string_view FormatPar = u8"{} {} HTTP/1.1\r\n{}{}Context-Length: 0\r\n\r\n";
 			if (SocketAgency::AbleToSend())
 			{
 				if(Target.empty())
 					Target = std::u8string_view{u8"/"};
 				SendingBuffer.clear();
-				auto RequireSize = *Potato::Format::FormatSize(FormatPar, Method, Target, Optional, ContextT);
+				auto RequireSize = FormatSizeHeadOnlyRequest(Method, Target, Optional, ContextT);
 				SendingBuffer.resize(RequireSize);
-				std::span<char8_t> Span =  {reinterpret_cast<char8_t*>(SendingBuffer.data()), SendingBuffer.size()};
-				Potato::Format::FormatToUnSafe(Span, FormatPar, Method, Target, Optional, ContextT);
+				FormatToHeadOnlyRequest(std::span(SendingBuffer), Method, Target, Optional, ContextT);
 				SocketAgency::AsyncSend(std::span(SendingBuffer), [Func = std::move(Func)](ErrorT Err, std::size_t Send, SocketAgency& Agency) {
 					return Func(Err, Send, static_cast<Http11Agency&>(Agency));
 				});
@@ -227,7 +128,12 @@ export namespace Litchi
 			return false;
 		}
 
+		static std::optional<std::vector<std::byte>> DecompressContent(std::u8string_view Head, std::span<std::byte const> Res);
+
 	protected:
+
+		std::size_t FormatSizeHeadOnlyRequest(HttpMethodT Method, std::u8string_view Target, HttpOptionT const& Optional, HttpContextT const& ContextT);
+		std::size_t FormatToHeadOnlyRequest(std::span<std::byte> Output, HttpMethodT Method, std::u8string_view Target, HttpOptionT const& Optional, HttpContextT const& ContextT);
 
 		template<typename RespondFunc>
 		void ReceiveExecute(RespondFunc Func)
