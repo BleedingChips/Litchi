@@ -14,9 +14,14 @@ namespace Litchi
 
 	ErrorT Translate(std::error_code const& EC)
 	{
-		if(!EC)
+		if (!EC)
 			return ErrorT::None;
+		else if (EC == asio::error::eof)
+			return ErrorT::Eof;
+		else if (EC == asio::error::host_not_found)
+			return ErrorT::HostNotFound;
 		else {
+			auto K = EC.message();
 			return ErrorT::Unknow;
 		}
 	}

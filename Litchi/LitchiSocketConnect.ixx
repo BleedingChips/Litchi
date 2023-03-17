@@ -12,6 +12,8 @@ export namespace Litchi
 	{
 		None = 0,
 		ChannelOccupy,
+		Eof,
+		HostNotFound,
 		Unknow,
 	};
 
