@@ -17,7 +17,6 @@ target_sources(
 	FILES
 		"LitchiCompression.ixx"
 		"LitchiContext.ixx"
-		"LitchiMemory.ixx"
 		"LitchiSocketConnect.ixx"
 		"LitchiHttpConnect.ixx"
 )

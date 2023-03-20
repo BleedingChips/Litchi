@@ -3,6 +3,7 @@ module;
 export module Litchi.Http;
 
 export import Potato.Format;
+export import Potato.Allocator;
 export import Litchi.Socket;
 
 export namespace Litchi
@@ -45,6 +46,9 @@ export namespace Litchi
 
 	struct Http11Agency : protected SocketAgency
 	{
+		template<typename T>
+		using AllocatorT = Potato::Misc::AllocatorT<T>;
+
 		using PtrT = Potato::Misc::IntrusivePtr<Http11Agency>;
 
 		using SocketAgency::AddRef;
@@ -135,7 +139,7 @@ export namespace Litchi
 		{
 			if (!TryGenerateRespond())
 			{
-				if (ReceiveBufferIndex.Begin() >= 4096)
+				if (ReceiveBufferIndex.Begin() * 2 >= ReceiveBuffer.size())
 				{
 					ReceiveBuffer.erase(
 						ReceiveBuffer.begin(),
@@ -143,7 +147,15 @@ export namespace Litchi
 					);
 					ReceiveBufferIndex.Offset = 0;
 				}
-				ReceiveBuffer.resize(ReceiveBufferIndex.End() + 4096);
+
+				std::size_t SuggestSize = 4096;
+
+				if (Status == StatusT::WaitChunkedContext || Status == StatusT::WaitHeadContext)
+				{
+					SuggestSize = ContextLength;
+				}
+
+				ReceiveBuffer.resize(std::max(ReceiveBufferIndex.End() + SuggestSize, ReceiveBuffer.capacity()));
 				SocketAgency::AsyncReceiveSome(std::span(ReceiveBuffer).subspan(ReceiveBufferIndex.End()),
 					[Func = std::move(Func)](ErrorT EC, std::size_t Receive, SocketAgency& Agency) {
 						auto& HAge = static_cast<Http11Agency&>(Agency);

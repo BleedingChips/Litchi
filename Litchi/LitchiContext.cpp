@@ -6,9 +6,13 @@ module;
 module Litchi.Context;
 import Litchi.Socket;
 import Litchi.Http;
+import Potato.Allocator;
 
 namespace Litchi
 {
+
+	template<typename T>
+	using AllocatorT = Potato::Misc::AllocatorT<T>;
 
 	Context::~Context() {}
 
