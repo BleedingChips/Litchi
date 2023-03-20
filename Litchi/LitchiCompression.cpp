@@ -1,5 +1,9 @@
-#include "Litchi/LitchiCompression.h"
+module;
+
 #include "zlib.h"
+
+module Litchi.Compression;
+
 namespace Litchi
 {
 	namespace Implement
@@ -16,7 +20,7 @@ namespace Litchi
 			Stream.opaque = Z_NULL;
 			Stream.next_in = reinterpret_cast<Bytef const*>(Input.data());
 			Stream.avail_in = Input.size() * sizeof(std::byte) / sizeof(Bytef);
-			if(inflateInit2(&Stream, MAX_WBITS + 16) != Z_OK)
+			if (inflateInit2(&Stream, MAX_WBITS + 16) != Z_OK)
 				return {};
 			std::size_t LastDecompressSize = 0;
 			std::size_t LastOutputSize = 0;
@@ -41,7 +45,7 @@ namespace Litchi
 					std::size_t TotalSize = Stream.total_out;
 					inflateEnd(&Stream);
 					return TotalSize;
-				}	
+				}
 				default:
 					inflateEnd(&Stream);
 					return {};

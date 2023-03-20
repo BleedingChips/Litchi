@@ -1,6 +1,6 @@
-cmake_minimum_required (VERSION 3.20)
+cmake_minimum_required (VERSION 3.25.1)
 
-project (minizip VERSION 1.2.13 LANGUAGES C)
+project (minizip VERSION 1.0 LANGUAGES C)
 
 add_library(
 	minizipstatic 

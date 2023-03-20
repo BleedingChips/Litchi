@@ -1,7 +1,10 @@
-#pragma once
-#include <span>
-#include <optional>
-namespace Litchi
+module;
+
+export module Litchi.Compression;
+
+export import Potato.STD;
+
+export namespace Litchi
 {
 	struct GZipDecProperty
 	{
@@ -23,8 +26,8 @@ namespace Litchi
 	std::optional<std::size_t> GZipDecompress(std::span<std::byte const> Input, RespondFun Func)
 		requires(std::is_invocable_r_v<std::span<std::byte>, RespondFun, GZipDecProperty const&>)
 	{
-		return Implement::GZipDecompressImp(Input, [](void* Data, GZipDecProperty const& Pro) -> std::span<std::byte>{
+		return Implement::GZipDecompressImp(Input, [](void* Data, GZipDecProperty const& Pro) -> std::span<std::byte> {
 			return (*reinterpret_cast<RespondFun*>(Data))(Pro);
-		}, &Func);
+			}, &Func);
 	}
 }

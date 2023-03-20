@@ -1,6 +1,6 @@
-cmake_minimum_required (VERSION 3.20)
+cmake_minimum_required (VERSION 3.25.1)
 
-project (zlib VERSION 1.2.13 LANGUAGES C)
+project (zlib VERSION 1.0 LANGUAGES C)
 
 add_library(
 	zlibstatic 
