@@ -145,7 +145,7 @@ export namespace Litchi
 						ReceiveBuffer.begin(),
 						ReceiveBuffer.begin() + ReceiveBufferIndex.Begin()
 					);
-					ReceiveBufferIndex.Offset = 0;
+					ReceiveBufferIndex = { ReceiveBufferIndex.Begin(), ReceiveBufferIndex.Begin()};
 				}
 
 				std::size_t SuggestSize = 4096;
@@ -160,7 +160,7 @@ export namespace Litchi
 					[Func = std::move(Func)](ErrorT EC, std::size_t Receive, SocketAgency& Agency) {
 						auto& HAge = static_cast<Http11Agency&>(Agency);
 						HAge.ReceiveBuffer.resize(HAge.ReceiveBufferIndex.End() + Receive);
-						HAge.ReceiveBufferIndex.Length += Receive;
+						HAge.ReceiveBufferIndex.BackwardEnd(Receive);
 						if (EC == ErrorT::None)
 						{
 							HAge.ReceiveExecute(std::move(Func));

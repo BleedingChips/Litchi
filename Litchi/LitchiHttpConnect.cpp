@@ -41,119 +41,64 @@ namespace Potato::Format
 	template<>
 	struct Formatter<Litchi::HttpMethodT, char8_t>
 	{
-		static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpMethodT Input);
-		static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Parameter, Litchi::HttpMethodT Input);
+		bool operator()(FormatWritter<char8_t>& Writer, std::basic_string_view<char8_t> Parameter, Litchi::HttpMethodT Input)
+		{
+			auto Tar = Trans(Input);
+			Writer.Write(std::span(Tar));
+			return !Tar.empty();
+		}
 	};
 
 	template<>
 	struct Formatter<Litchi::HttpConnectionT, char8_t>
 	{
-		static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpConnectionT Input) {
+		bool operator()(FormatWritter<char8_t>& Writer, std::basic_string_view<char8_t> Parameter, Litchi::HttpConnectionT const& Input)
+		{
 			auto Tar = Trans(Input);
-			std::copy_n(Tar.data(), Tar.size() * sizeof(char8_t), Output.data());
-			return Tar.size();
-		}
-		static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Parameter, Litchi::HttpConnectionT Input) {
-			auto Tar = Trans(Input);
-			return Tar.size();
+			Writer.Write(Tar);
+			return true;
 		}
 	};
-
-	template<>
-	struct Formatter<Litchi::HttpOptionT, char8_t>
-	{
-		static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input);
-		static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input);
-	};
-
-	template<>
-	struct Formatter<Litchi::HttpContextT, char8_t>
-	{
-		static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input);
-		static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input);
-	};
-
-	std::optional<std::size_t> Formatter<Litchi::HttpMethodT, char8_t>::Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpMethodT Input) {
-		auto Tar = Trans(Input);
-		std::copy_n(Tar.data(), Tar.size() * sizeof(char8_t), Output.data());
-		return Tar.size();
-	}
-	std::optional<std::size_t> Formatter<Litchi::HttpMethodT, char8_t>::FormatSize(std::basic_string_view<char8_t> Parameter, Litchi::HttpMethodT Input) {
-		auto Tar = Trans(Input);
-		return Tar.size();
-	}
 
 	static constexpr std::u8string_view OptionF2 = u8"Accept-Encoding: {}\r\n";
 	static constexpr std::u8string_view OptionF3 = u8"Accept-Charset: {}\r\n";
 	static constexpr std::u8string_view OptionF4 = u8"Accept: {}\r\n";
 
-
-	std::optional<std::size_t> Formatter<Litchi::HttpOptionT, char8_t>::Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input)
+	template<>
+	struct Formatter<Litchi::HttpOptionT, char8_t>
 	{
-		auto Count = *Format::DirectFormatToUnSafe(Output, {}, Input.Connection);
-		Output = Output.subspan(Count);
-		if (!Input.AcceptEncoding.empty())
+		bool operator()(FormatWritter<char8_t>& Writer, std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input)
 		{
-			auto CCount = *Format::FormatToUnSafe(Output, OptionF2, Input.AcceptEncoding);
-			Output = Output.subspan(CCount);
-			Count += CCount;
+			bool Re = true;
+			Re = Re && Formatter<Litchi::HttpConnectionT, char8_t>{}(Writer, {}, Input.Connection);
+			if (!Input.AcceptEncoding.empty())
+			{
+				Re = Re && Formatter<std::u8string_view, char8_t>{}(Writer, OptionF2, Input.AcceptEncoding);
+			}
+			if (!Input.AcceptCharset.empty())
+			{
+				Re = Re && Formatter<std::u8string_view, char8_t>{}(Writer, OptionF3, Input.AcceptCharset);
+			}
+			if (!Input.Accept.empty())
+			{
+				Re = Re && Formatter<std::u8string_view, char8_t>{}(Writer, OptionF4, Input.Accept);
+			}
+			return Re;
 		}
-		if (!Input.AcceptCharset.empty())
-		{
-			auto CCount = *Format::FormatToUnSafe(Output, OptionF3, Input.AcceptCharset);
-			Output = Output.subspan(CCount);
-			Count += CCount;
-		}
-		if (!Input.Accept.empty())
-		{
-			auto CCount = *Format::FormatToUnSafe(Output, OptionF4, Input.Accept);
-			Output = Output.subspan(CCount);
-			Count += CCount;
-		}
-		return Count;
-	}
+	};
 
-	std::optional<std::size_t> Formatter<Litchi::HttpOptionT, char8_t>::FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input)
-	{
-		auto Count = *Format::DirectFormatSize<char8_t>({}, Input.Connection);
-		if (!Input.AcceptEncoding.empty())
-		{
-			auto CCount = *Format::FormatSize(OptionF2, Input.AcceptEncoding);
-			Count += CCount;
-		}
-		if (!Input.AcceptCharset.empty())
-		{
-			auto CCount = *Format::FormatSize(OptionF3, Input.AcceptCharset);
-			Count += CCount;
-		}
-		if (!Input.Accept.empty())
-		{
-			auto CCount = *Format::FormatSize(OptionF4, Input.Accept);
-			Count += CCount;
-		}
-		return Count;
-	}
+	
 
 	static constexpr std::u8string_view ContextFor1 = u8"Cookie: {}\r\n";
 
-	std::optional<std::size_t> Formatter<Litchi::HttpContextT, char8_t>::Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input)
+	template<>
+	struct Formatter<Litchi::HttpContextT, char8_t>
 	{
-		if (!Input.Cookie.empty())
+		bool operator()(FormatWritter<char8_t>& Writer, std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input)
 		{
-			return Format::FormatToUnSafe(Output, ContextFor1, Input.Cookie);
+			return Formatter<std::u8string_view, char8_t>{}(Writer, ContextFor1, Input.Cookie);
 		}
-		return 0;
-	}
-
-	std::optional<std::size_t> Formatter<Litchi::HttpContextT, char8_t>::FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input)
-	{
-		if (!Input.Cookie.empty())
-		{
-			return Format::FormatSize(ContextFor1, Input.Cookie);
-		}
-		return 0;
-	}
-
+	};
 
 	template<>
 	struct Scanner<Litchi::HexChunkedContextCount, char8_t>
@@ -214,12 +159,18 @@ namespace Litchi
 
 	std::size_t Http11Agency::FormatSizeHeadOnlyRequest(HttpMethodT Method, std::u8string_view Target, HttpOptionT const& Optional, HttpContextT const& ContextT)
 	{
-		return *Potato::Format::FormatSize(HeadOnlyRequestFor, Method, Target, Host, Optional, ContextT);
+		Potato::Format::FormatWritter<char8_t> Writer;
+		Potato::Format::Format(Writer, HeadOnlyRequestFor, Method, Target, Host, Optional, ContextT);
+		return Writer.GetWritedSize();
 	}
 
 	std::size_t Http11Agency::FormatToHeadOnlyRequest(std::span<std::byte> Output, HttpMethodT Method, std::u8string_view Target, HttpOptionT const& Optional, HttpContextT const& ContextT)
 	{
-		return *Potato::Format::FormatToUnSafe({ reinterpret_cast<char8_t*>(Output.data()), Output.size() }, HeadOnlyRequestFor, Method, Target, Host, Optional, ContextT);
+		Potato::Format::FormatWritter<char8_t> Writer{
+			{reinterpret_cast<char8_t*>(Output.data()), Output.size()}
+		};
+		Potato::Format::Format(Writer, HeadOnlyRequestFor, Method, Target, Host, Optional, ContextT);
+		return Writer.GetWritedSize();
 	}
 
 	bool Http11Agency::TryGenerateRespond()
@@ -230,7 +181,7 @@ namespace Litchi
 
 		while (true)
 		{
-			auto TotalBuffer = ReceiveBufferIndex.Slice(ReceiveBuffer);
+			auto TotalBuffer = ReceiveBufferIndex.Slice(std::span(ReceiveBuffer));
 
 			if (!TotalBuffer.empty())
 			{
@@ -255,7 +206,7 @@ namespace Litchi
 						CurrentRespond.insert(CurrentRespond.end(), TotalBuffer.begin(), TotalBuffer.begin() + Index);
 						RespondHeadLength = Index;
 						Str = Str.substr(0, Index);
-						ReceiveBufferIndex = ReceiveBufferIndex.Sub(Index);
+						ReceiveBufferIndex = ReceiveBufferIndex.SubIndex(Index);
 						auto P = FindHeadOptionalValue(u8"Transfer-Encoding", Str);
 						if (P.has_value() && *P == u8"chunked")
 						{
@@ -283,12 +234,12 @@ namespace Litchi
 					if (TotalBuffer.size() >= ContextLength)
 					{
 						CurrentRespond.insert(CurrentRespond.end(), TotalBuffer.begin(), TotalBuffer.begin() + ContextLength);
-						ReceiveBufferIndex = ReceiveBufferIndex.Sub(ContextLength);
+						ReceiveBufferIndex = ReceiveBufferIndex.SubIndex(ContextLength);
 						return true;
 					}
 					else {
 						CurrentRespond.insert(CurrentRespond.end(), TotalBuffer.begin(), TotalBuffer.end());
-						ReceiveBufferIndex = ReceiveBufferIndex.Sub(ReceiveBufferIndex.Count());
+						ReceiveBufferIndex = ReceiveBufferIndex.SubIndex(ReceiveBufferIndex.Size());
 						ContextLength -= TotalBuffer.size();
 						return false;
 					}
@@ -304,7 +255,7 @@ namespace Litchi
 						HexChunkedContextCount Count;
 						Potato::Format::DirectScan(Str, Count);
 						ContextLength = Count.Value;
-						ReceiveBufferIndex = ReceiveBufferIndex.Sub(Index + SubSpe.size());
+						ReceiveBufferIndex = ReceiveBufferIndex.SubIndex(Index + SubSpe.size());
 						if(ContextLength != 0)
 							Status = StatusT::WaitChunkedContext;
 						else {
@@ -322,12 +273,12 @@ namespace Litchi
 					if (TotalBuffer.size() >= ContextLength)
 					{
 						CurrentRespond.insert(CurrentRespond.end(), TotalBuffer.begin(), TotalBuffer.begin() + ContextLength);
-						ReceiveBufferIndex = ReceiveBufferIndex.Sub(ContextLength);
+						ReceiveBufferIndex = ReceiveBufferIndex.SubIndex(ContextLength);
 						Status = StatusT::WaitChunkedEnd;
 					}
 					else {
 						CurrentRespond.insert(CurrentRespond.end(), TotalBuffer.begin(), TotalBuffer.end());
-						ReceiveBufferIndex = ReceiveBufferIndex.Sub(ReceiveBufferIndex.Count());
+						ReceiveBufferIndex = ReceiveBufferIndex.SubIndex(ReceiveBufferIndex.Size());
 						ContextLength -= TotalBuffer.size();
 						return false;
 					}
@@ -337,7 +288,7 @@ namespace Litchi
 				{
 					if (TotalBuffer.size() >= SubSpe.size())
 					{
-						ReceiveBufferIndex = ReceiveBufferIndex.Sub(SubSpe.size());
+						ReceiveBufferIndex = ReceiveBufferIndex.SubIndex(SubSpe.size());
 						if (!ReachEnd)
 						{
 							Status = StatusT::WaitChunkedContextHead;
