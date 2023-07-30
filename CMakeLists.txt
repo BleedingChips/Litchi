@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.26)
 
-project ("Litchi"  VERSION 1.24 LANGUAGES CXX)
+project ("Litchi"  VERSION 1.0 LANGUAGES CXX)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 	add_subdirectory("../Potato" "Potato")
@@ -54,9 +54,41 @@ target_include_directories(asio PUBLIC ThirdParty/asio/include/)
 
 add_subdirectory("ThirdParty/zlib")
 add_subdirectory("ThirdParty/minizip")
-#add_subdirectory("ThirdParty/AsioWrapper")
-add_subdirectory("Litchi")
+
+add_library(
+	LitchiModule 
+	STATIC
+	#"Litchi/LitchiContext.cpp"
+	#"Litchi/LitchiSocketExecutor.cpp"
+	#"Litchi/LitchiHttpConnect.cpp"
+	#"Litchi/LitchiCompression.cpp"
+)
+
+target_sources(
+	LitchiModule PUBLIC
+	FILE_SET cxx_modules TYPE CXX_MODULES
+	FILES
+		#"Litchi/LitchiCompression.ixx"
+		"Litchi/LitchiContext.ixx"
+		#"Litchi/LitchiSocketConnect.ixx"
+		#"Litchi/LitchiHttpConnect.ixx"
+)
+
+
+target_link_libraries(LitchiModule PUBLIC PotatoModule)
+target_link_libraries(LitchiModule PRIVATE asio)
+
+target_link_libraries(LitchiModule PRIVATE zlibstatic)
+target_link_libraries(LitchiModule PRIVATE minizipstatic)
+
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-	add_subdirectory("test")
+	
+	add_executable(
+		Http11Test
+		"Test/Http11Test.cpp"
+	)
+
+	target_link_libraries(Http11Test PRIVATE LitchiModule)
+
 endif()
