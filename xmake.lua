@@ -6,11 +6,25 @@ if os.scriptdir() == os.projectdir() then
     includes("../Potato/")
 end
 
+add_requires("zlib")
+add_requires("asio")
+
+target("LitchiAsioWrapper")
+    set_kind("static")
+    add_files("Litchi/AsioWrapper/*.cpp")
+    add_headerfiles("Litchi/AsioWrapper/*.h")
+    add_packages("asio")
+    add_defines("ASIO_NO_DEPRECATED")
+target_end()
+
 target("Litchi")
     set_kind("static")
     add_files("Litchi/*.cpp")
     add_files("Litchi/*.ixx")
+    add_deps("LitchiAsioWrapper")
     add_deps("Potato")
+    add_packages("zlib")
+    add_defines("ZLIB_CONST")
 target_end()
 
 if os.scriptdir() == os.projectdir() then

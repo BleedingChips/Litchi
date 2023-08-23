@@ -1,26 +1,14 @@
 module;
 
-export module Litchi.Socket;
+export module LitchiSocket;
 
-export import Potato.Allocator;
-export import Potato.SmartPtr;
+import PotatoPointer;
+import std;
 
 export namespace Litchi
 {
 
-	enum class ErrorT : uint8_t
-	{
-		None = 0,
-		ChannelOccupy,
-		Eof,
-		HostNotFound,
-		Unknow,
-
-
-	};
-
-	constexpr bool operator *(ErrorT Error) { return Error == ErrorT::None; }
-
+	/*
 	struct SocketAgency
 	{
 		using PtrT = Potato::Misc::IntrusivePtr<SocketAgency>;
@@ -172,4 +160,5 @@ export namespace Litchi
 	};
 
 	using Socket = AgencyWrapperT<SocketAgency>;
+	*/
 }

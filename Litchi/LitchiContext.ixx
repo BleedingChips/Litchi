@@ -1,15 +1,23 @@
 module;
 
-export module Litchi.Context;
+#include "AsioWrapper/LitchiAsioWrapper.h"
 
-export import Potato.STD;
-export import Potato.Allocator;
-export import Litchi.Socket;
-export import Litchi.Http;
+export module LitchiContext;
+
+import PotatoTaskSystem;
+import LitchiSocket;
+import LitchiHttp;
+import std;
+
 
 export namespace Litchi
 {
+	struct Context
+	{
+		
+	};
 
+	/*
 	struct Context
 	{
 		template<typename T>
@@ -26,4 +34,5 @@ export namespace Litchi
 		virtual Socket CreateIpTcpSocket() = 0;
 		virtual Http11 CreateHttp11(AllocatorT<std::byte> Allocator = {}) = 0;
 	};
+	*/
 }

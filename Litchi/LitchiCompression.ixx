@@ -1,8 +1,8 @@
 module;
 
-export module Litchi.Compression;
+export module LitchiCompression;
 
-export import Potato.STD;
+import std;
 
 export namespace Litchi
 {

@@ -1,13 +1,13 @@
 module;
 
-export module Litchi.Http;
+export module LitchiHttp;
 
-export import Potato.Format;
-export import Potato.Allocator;
-export import Litchi.Socket;
+import PotatoFormat;
+import LitchiSocket;
 
 export namespace Litchi
 {
+	/*
 	enum class HttpMethodT
 	{
 		Get,
@@ -210,5 +210,6 @@ export namespace Litchi
 	};
 
 	using Http11 = AgencyWrapperT<Http11Agency>;
+	*/
 }
 
