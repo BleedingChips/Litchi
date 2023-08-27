@@ -1,12 +1,99 @@
 module;
 
+#include <cassert>
 
 module LitchiContext;
-import LitchiSocket;
-import LitchiHttp;
 
 namespace Litchi
 {
+
+	Context::Context(Potato::Task::TaskContext::Ptr LinkedTaskContext, std::size_t TaskCount, void* Adress, std::pmr::memory_resource* IMResource)
+		: IMResource(IMResource), ContextPtr(AsioWrapper::Context::Construct(Adress)),
+	LinkedTaskContext(std::move(LinkedTaskContext)), RequestTaskCount(std::max(TaskCount, std::size_t{1}))
+	{
+
+	}
+
+	std::u8string_view Context::GetTaskName() const
+	{
+		return u8"asio io_context";
+	}
+
+	auto Context::Create(Potato::Task::TaskContext::Ptr LinkedTaskContext, std::size_t TaskCount, std::pmr::memory_resource* IMemoryResource)
+	-> Ptr
+	{
+		if (LinkedTaskContext && IMemoryResource != nullptr)
+		{
+			auto Layout = AsioWrapper::Context::GetLayout();
+			assert(Layout.Align == alignof(Context));
+			auto MPtr = IMemoryResource->allocate(
+				Layout.Size + sizeof(Context),
+				alignof(Context)
+			);
+			if (MPtr != nullptr)
+			{
+				auto P = reinterpret_cast<std::byte*>(MPtr) + sizeof(Context);
+				Ptr ConAdress {new (MPtr) Context{std::move(LinkedTaskContext), TaskCount, P, IMemoryResource}};
+				return ConAdress;
+			}
+		}
+		return {};
+	}
+
+	void Context::Release()
+	{
+		auto OResource = IMResource;
+		this->~Context();
+		auto Layout = AsioWrapper::Context::GetLayout();
+		OResource->deallocate(this, Layout.Size + sizeof(Context), alignof(Context));
+	}
+
+	Context::~Context()
+	{
+		assert(ContextPtr != nullptr);
+		ContextPtr->~Context();
+	}
+
+	void Context::operator()(Potato::Task::ExecuteStatus Status, Potato::Task::TaskContext& Context)
+	{
+		while(GetContextImp().PollOne())
+		{
+			
+		}
+
+		if(ContextMutex.try_lock())
+		{
+			std::lock_guard lg(ContextMutex, std::adopt_lock);
+			if(CurrentRequest != 0)
+			{
+				Context.CommitDelayTask(this, std::chrono::system_clock::now() + std::chrono::milliseconds{ 1 });
+			}else
+			{
+				RunningTaskCount -= 1;
+			}
+		}
+	}
+
+	void Context::AddRequest()
+	{
+		std::lock_guard lg(ContextMutex);
+		CurrentRequest += 1;
+		if(RunningTaskCount < RequestTaskCount)
+		{
+			assert(LinkedTaskContext);
+			LinkedTaskContext->CommitTask(this);
+			++RunningTaskCount;
+		}
+	}
+
+	void Context::SubRequest()
+	{
+		std::lock_guard lg(ContextMutex);
+		assert(CurrentRequest >= 1);
+		CurrentRequest -= 1;
+	}
+
+
 	/*
 	template<typename T>
 	using AllocatorT = Potato::Misc::AllocatorT<T>;

@@ -1,58 +1,136 @@
 #include "asio.hpp"
 #include "LitchiAsioWrapper.h"
+#include <cassert>
+#include <memory_resource>
 
 namespace Litchi::AsioWrapper
 {
 
-	struct AsioContextImp : public AsioContext
+
+	struct ContextImp : public Context
 	{
-		AsioContextImp(MemoryResourceInfo Resource) : Resource(Resource) {}
-		virtual void Release() override
-		{
-			auto OldResource = Resource;
-			assert(OldResource.DeallocatorFunction != nullptr);
-			this->~AsioContextImp();
-			OldResource.DeallocatorFunction(OldResource.Object, this, sizeof(AsioContextImp), alignof(AsioContextImp));
-		}
-
-		virtual bool CallOnce() override
-		{
-			return Context.run_one() != 0;
-		}
-
-		MemoryResourceInfo Resource;
+		virtual bool PollOne() override { return Context.poll_one() != 0; }
+		virtual void Cancel() override { Context.stop(); }
 		asio::io_context Context;
 	};
 
-	AsioContext* AsioContext::CreateInstance(MemoryResourceInfo AllocatorInfo)
+	Layout Context::GetLayout()
 	{
-		assert(AllocatorInfo.AllocatorFunction != nullptr);
-		auto Adress = AllocatorInfo.AllocatorFunction(AllocatorInfo.Object, sizeof(AsioContextImp), alignof(AsioContextImp));
+		return Layout{
+			sizeof(ContextImp),
+			alignof(ContextImp)
+		};
+	}
+
+	Context* Context::Construct(void* Adress)
+	{
 		if(Adress != nullptr)
 		{
-			auto Ptr = new (Adress) AsioContextImp{ std::move(AllocatorInfo) };
+			return new(Adress) ContextImp{};
 		}
 		return nullptr;
 	}
 
-	struct AsioResolverImp : public TcpAsioResolver
+	struct TCPSocketImp : public TCPSocket
 	{
-		AsioResolverImp(MemoryResourceInfo Info, AsioContextImp& Context)
-			: Resource(Info), Resolver(Context.Context) {}
-		static AsioContext* CreateInstance(MemoryResourceInfo AllocatorInfo);
+		TCPSocketImp(ContextImp& Context)
+			: Resolver(Context.Context), Socket(Context.Context)
+		{}
 
-		virtual void Release() override
+		virtual void Connect(
+			char8_t const* Host, unsigned long HostSize, char8_t const* Server, unsigned long ServerSize,
+			void (*Executer)(void* AppendData, std::error_code const&), void* AppendBuffer, std::pmr::memory_resource* Resource
+		) override
 		{
-			auto OldResource = Resource;
-			assert(OldResource.DeallocatorFunction != nullptr);
-			this->~AsioResolverImp();
-			OldResource.DeallocatorFunction(OldResource.Object, this, sizeof(AsioResolverImp), alignof(AsioResolverImp));
+			Resolver.async_resolve(
+				std::string_view{ reinterpret_cast<char const*>(Host), HostSize },
+				std::string_view{ reinterpret_cast<char const*>(Server), ServerSize },
+				[Executer, AppendBuffer, Resource, this](std::error_code const& EC, asio::ip::tcp::resolver::results_type EndPoints)
+				{
+					auto Array = Resource->allocate(sizeof(asio::ip::tcp::socket::endpoint_type) * EndPoints.size(), alignof(asio::ip::tcp::socket::endpoint_type));
+					if(Array != nullptr)
+					{
+						auto EArray = new (Array) asio::ip::tcp::socket::endpoint_type[EndPoints.size()];
+						std::size_t Count = 0;
+						for (auto Ite : EndPoints)
+						{
+							assert(Count < EndPoints.size());
+							new (EArray + Count) asio::ip::tcp::socket::endpoint_type{Ite.endpoint()};
+							++Count;
+						}
+						CallConnect(
+							EArray,
+							0, EndPoints.size(), Executer, AppendBuffer, Resource
+						);
+					}else
+					{
+						// todo
+						Executer(AppendBuffer, {});
+					}
+				}
+			);
 		}
 
-		MemoryResourceInfo Resource;
-		asio::ip::tcp::resolver Resolver;
+		void CallConnect(
+			asio::ip::tcp::socket::endpoint_type* Array,
+			std::size_t CurIndex,
+			std::size_t TotalIndex,
+			void (*Executer)(void* AppendData, std::error_code const&), void* AppendBuffer, std::pmr::memory_resource* Resource
+		)
+		{
+			if(CurIndex < TotalIndex)
+			{
+				Socket.async_connect(
+					Array[CurIndex],
+					[CurIndex, Array, TotalIndex, Executer, AppendBuffer, Resource, this](std::error_code const& EC) mutable
+					{
+						CurIndex += 1;
+						if(!EC || CurIndex >= TotalIndex)
+						{
+							for(std::size_t I = 0; I < TotalIndex; ++I)
+							{
+								Array[I].~basic_endpoint();
+							}
+							Resource->deallocate(Array, sizeof(asio::ip::tcp::socket::endpoint_type) * TotalIndex, alignof(asio::ip::tcp::socket::endpoint_type));
+						}
 
+						if(!EC)
+						{
+							Executer(AppendBuffer, {});
+						}else
+						{
+							if(CurIndex <= TotalIndex)
+							{
+								CallConnect(Array, CurIndex, TotalIndex, Executer, AppendBuffer, Resource);
+							}else
+							{
+								Executer(AppendBuffer, EC);
+							}
+						}
+					}
+				);
+			}
+		}
+		asio::ip::tcp::resolver Resolver;
+		asio::ip::tcp::socket Socket;
 	};
+
+	Layout TCPSocket::GetLayout()
+	{
+		return Layout{
+			sizeof(TCPSocketImp),
+			alignof(TCPSocketImp)
+		};
+	}
+
+	TCPSocket* TCPSocket::Construct(void* Adress, Context& Context, std::pmr::memory_resource* Resource)
+	{
+		if (Adress != nullptr)
+		{
+			return new(Adress) TCPSocketImp{static_cast<ContextImp&>(Context)};
+		}
+		return nullptr;
+	}
 }
 
 namespace Litchi

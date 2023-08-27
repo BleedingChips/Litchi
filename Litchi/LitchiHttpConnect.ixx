@@ -3,7 +3,7 @@ module;
 export module LitchiHttp;
 
 import PotatoFormat;
-import LitchiSocket;
+import LitchiSocketTcp;
 
 export namespace Litchi
 {

@@ -1,12 +1,72 @@
 module;
 
-export module LitchiSocket;
+#include <cassert>
+#include "AsioWrapper/LitchiAsioWrapper.h"
 
-import PotatoPointer;
+export module LitchiSocketTcp;
+
 import std;
+import PotatoPointer;
+import LitchiContext;
 
-export namespace Litchi
+
+export namespace Litchi::TCP
 {
+
+	struct Socket : public Potato::Pointer::DefaultIntrusiveInterface
+	{
+		using Ptr = Potato::Pointer::IntrusivePtr<Socket>;
+		static Ptr Create(Context::Ptr Owner, std::pmr::memory_resource* IMemoryResource = std::pmr::get_default_resource());
+
+		template<typename FunT>
+		bool AsyncConnect(std::u8string_view Host, std::u8string_view Server, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
+			requires(std::is_invocable_v<FunT, std::error_code&, Ptr>);
+
+		/*
+		template<typename FunT>
+		bool AsyncSend(
+		);
+		*/
+
+	protected:
+
+		Socket(Context::Ptr Owner, void* Adress, std::pmr::memory_resource* IMResource);
+		~Socket();
+		virtual void Release() override;
+
+		std::pmr::memory_resource* IMResource = nullptr;
+		Context::Ptr Owner;
+		AsioWrapper::TCPSocket* SocketPtr = nullptr;
+
+		friend struct Potato::Pointer::DefaultIntrusiveInterface;
+	};
+
+	template<typename FunT>
+	bool Socket::AsyncConnect(std::u8string_view Host, std::u8string_view Server, FunT&& Func, std::pmr::memory_resource* Resource)
+		requires(std::is_invocable_v<FunT, std::error_code&, Ptr>)
+	{
+		auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), Socket::Ptr{this}, Resource);
+		using Type = decltype(Block);
+		if(Block != nullptr)
+		{
+			Owner->AddRequest();
+			SocketPtr->Connect(
+				Host.data(), Host.size(),
+				Server.data(), Server.size(),
+				[](void* AppendData, std::error_code const& EC)
+				{
+					auto Block = static_cast<Type>(AppendData);
+					auto OwnerPtr = std::move(Block->Ptr);
+					assert(OwnerPtr);
+					Block->Func(EC, OwnerPtr);
+					DestroyTemporaryBlockKeeper(Block);
+					OwnerPtr->Owner->SubRequest();
+				}, Block, Resource
+			);
+			return true;
+		}
+		return false;
+	}
 
 	/*
 	struct SocketAgency

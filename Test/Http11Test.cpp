@@ -1,12 +1,32 @@
-import LitchiContext;
-import LitchiCompression;
 import std;
 import PotatoDocument;
+import PotatoTaskSystem;
+import LitchiContext;
+import LitchiSocketTcp;
+import LitchiCompression;
 
 using namespace Litchi;
 
 int main()
 {
+
+	auto TaskSystem = Potato::Task::TaskContext::Create();
+	TaskSystem->FireThreads();
+	auto Con = Context::Create(TaskSystem);
+	auto Res = TCP::Socket::Create(std::move(Con));
+
+	Res->AsyncConnect(
+		u8"www.baidu.com",
+		u8"Http",
+		[](std::error_code const& EC, TCP::Socket::Ptr This)
+		{
+			volatile int i = 0;
+		}
+	);
+
+	Res.Reset();
+	TaskSystem->WaitTask();
+
 	/*
 	std::cout<< "Begin !" << std::endl;
 

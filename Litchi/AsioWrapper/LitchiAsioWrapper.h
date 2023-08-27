@@ -1,35 +1,43 @@
 #pragma once
 
+namespace std
+{
+	class error_code;
+}
+
+namespace std::pmr
+{
+	class memory_resource;
+}
 
 namespace Litchi::AsioWrapper
 {
 
-	struct MemoryResourceInfo
+	struct Layout
 	{
-		void* Object = nullptr;
-		void* (*AllocatorFunction)(void* Object, unsigned long long Size, unsigned long long Alina) = nullptr;
-		void (*DeallocatorFunction)(void* Object, void* Adress, unsigned long long Size, unsigned long long Alina) = nullptr;
+		unsigned long long Size = 0;
+		unsigned long long Align = 0;
 	};
 
-	struct AsioContext
+	struct Context
 	{
-		static AsioContext* CreateInstance(MemoryResourceInfo AllocatorInfo);
-		virtual void Release() = 0;
-		virtual bool CallOnce() = 0;
+		static Layout GetLayout();
+		static Context* Construct(void* Adress);
+		virtual ~Context() = default;
+		virtual bool PollOne() = 0;
+		virtual void Cancel() = 0;
 	};
 
-	struct TcpAsioResolver
+	struct TCPSocket
 	{
-		static TcpAsioResolver* CreateInstance(AsioContext& Context, MemoryResourceInfo AllocatorInfo);
-		virtual void Release() = 0;
+		static Layout GetLayout();
+		static TCPSocket* Construct(void* Adress, Context& Content, std::pmr::memory_resource* Resource);
+		virtual ~TCPSocket() = default;
+		virtual void Connect(
+			char8_t const* Host, unsigned long HostSize, char8_t const* Server, unsigned long ServerSize,
+			void (*Executer)(void* AppendData, std::error_code const&), void* AppendBuffer, std::pmr::memory_resource* Resource
+		) = 0;
 	};
-
-
-
-
-
-
-
 
 	/*
 
