@@ -20,13 +20,29 @@ export namespace Litchi::TCP
 
 		template<typename FunT>
 		bool AsyncConnect(std::u8string_view Host, std::u8string_view Server, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
-			requires(std::is_invocable_v<FunT, std::error_code&, Ptr>);
+			requires(std::is_invocable_v<FunT, std::error_code const&, Ptr>);
 
-		/*
+		bool Connect(std::u8string_view Host, std::u8string_view Server, std::pmr::memory_resource* MemoryResource = std::pmr::get_default_resource())
+		{
+			std::promise<bool> Pro;
+			auto Fur = Pro.get_future();
+			if(!AsyncConnect(
+				Host, Server, 
+				[&](std::error_code const& EC, Ptr)
+				{
+					Pro.set_value(!EC);
+				},
+				MemoryResource
+			))
+			{
+				Pro.set_value(false);
+			}
+			return Fur.get();
+		}
+
 		template<typename FunT>
-		bool AsyncSend(
-		);
-		*/
+		bool AsyncSend(std::span<std::byte const*> Data, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
+			requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t, Ptr>);
 
 	protected:
 
@@ -43,7 +59,7 @@ export namespace Litchi::TCP
 
 	template<typename FunT>
 	bool Socket::AsyncConnect(std::u8string_view Host, std::u8string_view Server, FunT&& Func, std::pmr::memory_resource* Resource)
-		requires(std::is_invocable_v<FunT, std::error_code&, Ptr>)
+		requires(std::is_invocable_v<FunT, std::error_code const&, Ptr>)
 	{
 		auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), Socket::Ptr{this}, Resource);
 		using Type = decltype(Block);
@@ -59,6 +75,32 @@ export namespace Litchi::TCP
 					auto OwnerPtr = std::move(Block->Ptr);
 					assert(OwnerPtr);
 					Block->Func(EC, OwnerPtr);
+					DestroyTemporaryBlockKeeper(Block);
+					OwnerPtr->Owner->SubRequest();
+				}, Block, Resource
+			);
+			return true;
+		}
+		return false;
+	}
+
+	template<typename FunT>
+	bool Socket::AsyncSend(std::span<std::byte const*> Data, FunT&& Func, std::pmr::memory_resource* Resource)
+		requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t, Ptr>)
+	{
+		auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), Socket::Ptr{ this }, Resource);
+		using Type = decltype(Block);
+		if (Block != nullptr)
+		{
+			Owner->AddRequest();
+			SocketPtr->Send(
+				Data,
+				[](void* AppendData, std::error_code const& EC, unsigned long long Sended)
+				{
+					auto Block = static_cast<Type>(AppendData);
+					auto OwnerPtr = std::move(Block->Ptr);
+					assert(OwnerPtr);
+					Block->Func(EC, Sended, OwnerPtr);
 					DestroyTemporaryBlockKeeper(Block);
 					OwnerPtr->Owner->SubRequest();
 				}, Block, Resource

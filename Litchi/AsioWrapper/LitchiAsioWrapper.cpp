@@ -1,7 +1,9 @@
-#include "asio.hpp"
-#include "LitchiAsioWrapper.h"
 #include <cassert>
 #include <memory_resource>
+#include <span>
+#include "asio.hpp"
+#include "LitchiAsioWrapper.h"
+
 
 namespace Litchi::AsioWrapper
 {
@@ -111,6 +113,61 @@ namespace Litchi::AsioWrapper
 				);
 			}
 		}
+
+		virtual void Send(
+			void const* Data, unsigned long long DataCount,
+			void (*Executer)(void* AppendData, std::error_code const&, unsigned long long), void* AppendBuffer
+		) override
+		{
+			SendImp(0, Data, DataCount, Executer, AppendBuffer);
+		}
+
+		virtual void ReceiveSome(
+			void* Data, unsigned long long DataCount,
+			void (*Executer)(void* AppendData, std::error_code const&, unsigned long long), void* AppendBuffer
+		) override
+		{
+			Socket.async_read_some(
+				asio::mutable_buffer{
+					Data,
+					DataCount
+				},
+				[Executer, AppendBuffer](std::error_code const& EC, std::size_t Readed)
+				{
+					Executer(AppendBuffer, EC, Readed);
+				}
+			);
+		}
+
+		virtual void SendImp(
+			std::size_t SendedSize,
+			void const* Data, unsigned long long DataCount,
+			void (*Executer)(void* AppendData, std::error_code const&, unsigned long long), void* AppendBuffer
+			)
+		{
+			Socket.async_send(
+				asio::const_buffer{
+					Data,
+					DataCount
+				},
+				[Executer, AppendBuffer, Data, DataCount, this, SendedSize](std::error_code const& EC, std::size_t Sended)
+				{
+					if(EC || DataCount >= Sended)
+					{
+						Executer(AppendBuffer, EC, SendedSize + Sended);
+					}else
+					{
+						SendImp(
+							SendedSize + Sended,
+							reinterpret_cast<std::byte const*>(Data) + Sended,
+							DataCount - Sended,
+							Executer, AppendBuffer
+						);
+					}
+				}
+			);
+		}
+
 		asio::ip::tcp::resolver Resolver;
 		asio::ip::tcp::socket Socket;
 	};

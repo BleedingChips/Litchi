@@ -37,6 +37,16 @@ namespace Litchi::AsioWrapper
 			char8_t const* Host, unsigned long HostSize, char8_t const* Server, unsigned long ServerSize,
 			void (*Executer)(void* AppendData, std::error_code const&), void* AppendBuffer, std::pmr::memory_resource* Resource
 		) = 0;
+
+		virtual void Send(
+			void const* Data, unsigned long long DataCount,
+			void (*Executer)(void* AppendData, std::error_code const&, unsigned long long), void* AppendBuffer
+		) = 0;
+
+		virtual void ReceiveSome(
+			void* Data, unsigned long long DataCount,
+			void (*Executer)(void* AppendData, std::error_code const&, unsigned long long), void* AppendBuffer
+		) = 0;
 	};
 
 	/*

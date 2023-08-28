@@ -64,7 +64,7 @@ namespace Litchi
 		if(ContextMutex.try_lock())
 		{
 			std::lock_guard lg(ContextMutex, std::adopt_lock);
-			if(CurrentRequest != 0)
+			if(CurrentRequest >= RunningTaskCount)
 			{
 				Context.CommitDelayTask(this, std::chrono::system_clock::now() + std::chrono::milliseconds{ 1 });
 			}else
@@ -81,8 +81,8 @@ namespace Litchi
 		if(RunningTaskCount < RequestTaskCount)
 		{
 			assert(LinkedTaskContext);
-			LinkedTaskContext->CommitTask(this);
 			++RunningTaskCount;
+			LinkedTaskContext->CommitTask(this);
 		}
 	}
 
