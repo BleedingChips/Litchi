@@ -51,16 +51,16 @@ export namespace Litchi
 	};
 
 	template<typename TFunc, typename PtrT>
-	auto CreateTemporaryBlockKeeper(TFunc&& Func, PtrT Ptr, std::pmr::memory_resource* Resource)
-		-> TemporaryBlockKeeper<std::remove_cvref_t<TFunc>, PtrT>*
+	auto CreateTemporaryBlockKeeper(TFunc&& Func, PtrT&& Ptr, std::pmr::memory_resource* Resource)
+		-> TemporaryBlockKeeper<std::remove_cvref_t<TFunc>, std::remove_cvref_t<PtrT>>*
 	{
-		using Type = TemporaryBlockKeeper<std::remove_cvref_t<TFunc>, PtrT>;
+		using Type = TemporaryBlockKeeper<std::remove_cvref_t<TFunc>, std::remove_cvref_t<PtrT>>;
 		if(Ptr && Resource != nullptr)
 		{
 			auto Adress = Resource->allocate(sizeof(Type), alignof(Type));
 			if(Adress != nullptr)
 			{
-				return new (Adress) Type{ std::forward<TFunc>(Func), std::move(Ptr), Resource};
+				return new (Adress) Type{ std::forward<TFunc>(Func), std::forward<PtrT>(Ptr), Resource};
 			}
 		}
 		return nullptr;
@@ -98,4 +98,13 @@ export namespace Litchi
 		virtual Http11 CreateHttp11(AllocatorT<std::byte> Allocator = {}) = 0;
 	};
 	*/
+}
+
+export namespace Litchi::ErrorCode
+{
+	struct LitchiErrorCode
+		//: public std::error_category
+	{
+		
+	};
 }

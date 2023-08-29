@@ -66,8 +66,8 @@ namespace Litchi::AsioWrapper
 						);
 					}else
 					{
-						// todo
-						Executer(AppendBuffer, {});
+						std::error_code ErrorCode{ ENOMEM, std::system_category() };
+						Executer(AppendBuffer, ErrorCode);
 					}
 				}
 			);
@@ -98,7 +98,7 @@ namespace Litchi::AsioWrapper
 
 						if(!EC)
 						{
-							Executer(AppendBuffer, {});
+							Executer(AppendBuffer, EC);
 						}else
 						{
 							if(CurIndex <= TotalIndex)
@@ -166,6 +166,13 @@ namespace Litchi::AsioWrapper
 					}
 				}
 			);
+		}
+
+		virtual ~TCPSocketImp()
+		{
+			Resolver.cancel();
+			if(Socket.is_open())
+				Socket.close();
 		}
 
 		asio::ip::tcp::resolver Resolver;

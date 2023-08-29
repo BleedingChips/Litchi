@@ -1,9 +1,42 @@
 module;
 
+#include "AsioWrapper/LitchiAsioWrapper.h"
+#include <cassert>
+
 module LitchiHttp;
-import PotatoFormat;
-import LitchiCompression;
-import PotatoDocument;
+
+namespace Litchi::Http
+{
+	auto Http11::Create(Context::Ptr Owner, std::pmr::memory_resource* IMemoryResource)
+		-> Ptr
+	{
+		if (Owner && IMemoryResource != nullptr)
+		{
+			auto Layout = AsioWrapper::TCPSocket::GetLayout();
+			assert(Layout.Align == alignof(Http11));
+			auto MPtr = IMemoryResource->allocate(
+				Layout.Size + sizeof(Http11),
+				alignof(Http11)
+			);
+			if (MPtr != nullptr)
+			{
+				auto P = reinterpret_cast<std::byte*>(MPtr) + sizeof(Http11);
+				auto ResoAdress = new Http11{ std::move(Owner), P, IMemoryResource };
+				return Ptr{ ResoAdress };
+			}
+		}
+		return {};
+	};
+
+	void Http11::Release()
+	{
+		auto OResource = IMResource;
+		this->~Http11();
+		auto Layout = AsioWrapper::TCPSocket::GetLayout();
+		OResource->deallocate(this, Layout.Size + sizeof(Http11), alignof(Http11));
+	}
+
+}
 
 /*
 namespace Litchi

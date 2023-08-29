@@ -4,6 +4,7 @@ import PotatoTaskSystem;
 import LitchiContext;
 import LitchiSocketTcp;
 import LitchiCompression;
+import LitchiHttp;
 
 using namespace Litchi;
 
@@ -13,8 +14,11 @@ int main()
 	auto TaskSystem = Potato::Task::TaskContext::Create();
 	TaskSystem->FireThreads();
 	auto Con = Context::Create(TaskSystem);
-	auto Res = TCP::Socket::Create(std::move(Con));
+	auto Res = TCP::Socket::Create(Con);
 
+	auto Http1 = Http::Http11::Create(Con);
+
+	/*
 	Res->AsyncConnect(
 		u8"www.baidu.com",
 		u8"Http",
@@ -23,6 +27,7 @@ int main()
 			volatile int i = 0;
 		}
 	);
+	*/
 
 	Res.Reset();
 	TaskSystem->WaitTask();

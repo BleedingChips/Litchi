@@ -1,6 +1,7 @@
 module;
 
 #include <cassert>
+#include <cerrno>
 #include "AsioWrapper/LitchiAsioWrapper.h"
 
 export module LitchiSocketTcp;
@@ -19,30 +20,59 @@ export namespace Litchi::TCP
 		static Ptr Create(Context::Ptr Owner, std::pmr::memory_resource* IMemoryResource = std::pmr::get_default_resource());
 
 		template<typename FunT>
-		bool AsyncConnect(std::u8string_view Host, std::u8string_view Server, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
+		void AsyncConnect(std::u8string_view Host, std::u8string_view Server, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
 			requires(std::is_invocable_v<FunT, std::error_code const&, Ptr>);
 
 		bool Connect(std::u8string_view Host, std::u8string_view Server, std::pmr::memory_resource* MemoryResource = std::pmr::get_default_resource())
 		{
 			std::promise<bool> Pro;
 			auto Fur = Pro.get_future();
-			if(!AsyncConnect(
-				Host, Server, 
+			AsyncConnect(
+				Host, Server,
 				[&](std::error_code const& EC, Ptr)
 				{
 					Pro.set_value(!EC);
 				},
 				MemoryResource
-			))
-			{
-				Pro.set_value(false);
-			}
+			);
 			return Fur.get();
 		}
 
 		template<typename FunT>
-		bool AsyncSend(std::span<std::byte const*> Data, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
+		void AsyncSend(std::span<std::byte const*> Data, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
 			requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t, Ptr>);
+
+		template<typename FunT>
+		void AsyncReadSome(std::span<std::byte> Data, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
+			requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t, Ptr>)
+		{
+			Socket::Ptr ThisPtr{ this };
+			auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), std::move(ThisPtr), Resource);
+			using Type = decltype(Block);
+			if(Block != nullptr)
+			{
+				Owner->AddRequest();
+				SocketPtr->ReceiveSome(
+					Data.data(), Data.size(),
+					[](void* AppendData, std::error_code const& EC)
+					{
+						auto Block = static_cast<Type>(AppendData);
+						auto OwnerPtr = std::move(Block->Ptr);
+						assert(OwnerPtr);
+						Block->Func(EC, OwnerPtr);
+						DestroyTemporaryBlockKeeper(Block);
+						OwnerPtr->Owner->SubRequest();
+					}, Block, Resource
+				);
+			}else
+			{
+				std::error_code EC{ ENOMEM, std::system_category() };
+				Func(
+					EC,
+					std::move(ThisPtr)
+				);
+			}
+		}
 
 	protected:
 
@@ -58,10 +88,11 @@ export namespace Litchi::TCP
 	};
 
 	template<typename FunT>
-	bool Socket::AsyncConnect(std::u8string_view Host, std::u8string_view Server, FunT&& Func, std::pmr::memory_resource* Resource)
+	void Socket::AsyncConnect(std::u8string_view Host, std::u8string_view Server, FunT&& Func, std::pmr::memory_resource* Resource)
 		requires(std::is_invocable_v<FunT, std::error_code const&, Ptr>)
 	{
-		auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), Socket::Ptr{this}, Resource);
+		Socket::Ptr ThisPtr{this};
+		auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), std::move(ThisPtr), Resource);
 		using Type = decltype(Block);
 		if(Block != nullptr)
 		{
@@ -79,16 +110,22 @@ export namespace Litchi::TCP
 					OwnerPtr->Owner->SubRequest();
 				}, Block, Resource
 			);
-			return true;
+		}else
+		{
+			std::error_code EC{ ENOMEM, std::system_category()};
+			Func(
+				EC,
+				std::move(ThisPtr)
+			);
 		}
-		return false;
 	}
 
 	template<typename FunT>
-	bool Socket::AsyncSend(std::span<std::byte const*> Data, FunT&& Func, std::pmr::memory_resource* Resource)
+	void Socket::AsyncSend(std::span<std::byte const*> Data, FunT&& Func, std::pmr::memory_resource* Resource)
 		requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t, Ptr>)
 	{
-		auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), Socket::Ptr{ this }, Resource);
+		Socket::Ptr ThisPtr{ this };
+		auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), std::move(ThisPtr), Resource);
 		using Type = decltype(Block);
 		if (Block != nullptr)
 		{
@@ -105,9 +142,14 @@ export namespace Litchi::TCP
 					OwnerPtr->Owner->SubRequest();
 				}, Block, Resource
 			);
-			return true;
+		}else
+		{
+			std::error_code EC{ ENOMEM, std::system_category() };
+			Func(
+				EC,
+				std::move(ThisPtr)
+			);
 		}
-		return false;
 	}
 
 	/*

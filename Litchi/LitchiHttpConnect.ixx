@@ -2,22 +2,108 @@ module;
 
 export module LitchiHttp;
 
+import std;
 import PotatoFormat;
+import LitchiContext;
 import LitchiSocketTcp;
 
-export namespace Litchi
+export namespace Litchi::Http
 {
+	
+	enum class MethodT
+	{
+		Get,
+	};
+
+	enum class ConnectionT
+	{
+		None,
+		Close,
+	};
+
+	struct OptionT
+	{
+		ConnectionT Connection = ConnectionT::None;
+		std::u8string_view Accept = u8"text/html";
+		std::u8string_view AcceptEncoding = u8"gzip";
+		std::u8string_view AcceptCharset = u8"utf-8";
+	};
+
+	struct HttpContextT
+	{
+		std::u8string Cookie;
+	};
+
+	struct Http11 : public TCP::Socket
+	{
+		using Ptr = Potato::Pointer::IntrusivePtr<Http11>;
+		static Ptr Create(Context::Ptr Owner, std::pmr::memory_resource* IMemoryResource = std::pmr::get_default_resource());
+
+		virtual void Release() override;
+
+		template<typename FunT>
+		void AsyncConnect(std::u8string Host, FunT&& Func, std::pmr::memory_resource* MResource = std::pmr::get_default_resource())
+			requires(std::is_invocable_v<FunT, std::error_code const&, Ptr>)
+		{
+			TCP::Socket::AsyncConnect(
+				Host, u8"Http", [Func = std::forward<FunT>(Func)](std::error_code const& EC, TCP::Socket::Ptr ThisPtr)
+				{
+					Ptr ThisPtr {static_cast<Http11*>(ThisPtr.GetPointer())};
+					Func(EC, std::move(ThisPtr));
+				}, MResource
+			);
+		}
+
+		/*
+		template<typename FunT>
+		bool AsyncRequestHeadOnly(MethodT Method, std::u8string_view Target, OptionT const& Optional, HttpContextT const& ContextT, FunT&& Func)
+			requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t, Ptr>)
+		{
+			constexpr std::u8string_view FormatPar = u8"{} {} HTTP/1.1\r\n{}{}Context-Length: 0\r\n\r\n";
+
+			
+
+			if (SocketAgency::AbleToSend())
+			{
+				if (Target.empty())
+					Target = std::u8string_view{ u8"/" };
+				SendingBuffer.clear();
+				auto RequireSize = FormatSizeHeadOnlyRequest(Method, Target, Optional, ContextT);
+				SendingBuffer.resize(RequireSize);
+				FormatToHeadOnlyRequest(std::span(SendingBuffer), Method, Target, Optional, ContextT);
+				SocketAgency::AsyncSend(std::span(SendingBuffer), [Func = std::move(Func)](ErrorT Err, std::size_t Send, SocketAgency& Agency) {
+					return Func(Err, Send, static_cast<Http11Agency&>(Agency));
+					});
+				return true;
+			}
+			return false;
+		}
+		*/
+
+
+	protected:
+
+		Http11(Context::Ptr Owner, void* Adress, std::pmr::memory_resource* IMResource)
+			: Socket(std::move(Owner), Adress, IMResource), TemporaryBuffer(IMResource), SendBuffer(IMResource), RespondBuffer(IMResource)
+		{
+		}
+
+		std::mutex HttpMutex;
+		std::pmr::vector<std::byte> TemporaryBuffer;
+		std::pmr::vector<std::byte> SendBuffer;
+		std::pmr::vector<std::byte> RespondBuffer;
+	};
+
+
+
+
 	/*
 	enum class HttpMethodT
 	{
 		Get,
 	};
 
-	enum class HttpConnectionT
-	{
-		None,
-		Close,
-	};
+	
 
 	struct HttpOptionT
 	{
