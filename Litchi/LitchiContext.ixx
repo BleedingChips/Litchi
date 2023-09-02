@@ -8,6 +8,12 @@ import std;
 import PotatoPointer;
 import PotatoTaskSystem;
 
+export namespace Litchi::ErrorCode
+{
+	std::error_code const& BadAllocateErrorCode();
+}
+
+
 export namespace Litchi
 {
 

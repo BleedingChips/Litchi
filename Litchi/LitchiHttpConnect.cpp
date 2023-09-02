@@ -5,6 +5,154 @@ module;
 
 module LitchiHttp;
 
+namespace Potato::Format
+{
+
+	auto Trans(Litchi::Http::MethodT Method) -> std::u8string_view
+	{
+		switch (Method)
+		{
+		case Litchi::Http::MethodT::Get:
+			return u8"GET";
+		}
+		return {};
+	}
+
+	auto Trans(Litchi::Http::ConnectionT Connect) -> std::u8string_view
+	{
+		switch (Connect)
+		{
+		case Litchi::Http::ConnectionT::None:
+			return {};
+		case Litchi::Http::ConnectionT::Close:
+			return u8"Connection: close\r\n";
+		}
+		return {};
+	}
+
+	template<>
+	struct Formatter<Litchi::Http::MethodT, char8_t>
+	{
+		bool operator()(FormatWritter<char8_t>& Writer, std::basic_string_view<char8_t> Parameter, Litchi::Http::MethodT Input)
+		{
+			auto Tar = Trans(Input);
+			Writer.Write(std::span(Tar));
+			return !Tar.empty();
+		}
+	};
+
+	template<>
+	struct Formatter<Litchi::Http::ConnectionT, char8_t>
+	{
+		bool operator()(FormatWritter<char8_t>& Writer, std::basic_string_view<char8_t> Parameter, Litchi::Http::ConnectionT const& Input)
+		{
+			auto Tar = Trans(Input);
+			Writer.Write(Tar);
+			return true;
+		}
+	};
+
+	static constexpr std::u8string_view OptionF2 = u8"Accept-Encoding: {}\r\n";
+	static constexpr std::u8string_view OptionF3 = u8"Accept-Charset: {}\r\n";
+	static constexpr std::u8string_view OptionF4 = u8"Accept: {}\r\n";
+
+	template<>
+	struct Formatter<Litchi::Http::OptionT, char8_t>
+	{
+		bool operator()(FormatWritter<char8_t>& Writer, std::basic_string_view<char8_t> Pars, Litchi::Http::OptionT const& Input)
+		{
+			bool Re = true;
+			Re = Re && Formatter<Litchi::Http::ConnectionT, char8_t>{}(Writer, {}, Input.Connection);
+			if (!Input.AcceptEncoding.empty())
+			{
+				Re = Re && Formatter<std::u8string_view, char8_t>{}(Writer, OptionF2, Input.AcceptEncoding);
+			}
+			if (!Input.AcceptCharset.empty())
+			{
+				Re = Re && Formatter<std::u8string_view, char8_t>{}(Writer, OptionF3, Input.AcceptCharset);
+			}
+			if (!Input.Accept.empty())
+			{
+				Re = Re && Formatter<std::u8string_view, char8_t>{}(Writer, OptionF4, Input.Accept);
+			}
+			return Re;
+		}
+	};
+
+
+
+	static constexpr std::u8string_view ContextFor1 = u8"Cookie: {}\r\n";
+
+	template<>
+	struct Formatter<Litchi::Http::ContextT, char8_t>
+	{
+		bool operator()(FormatWritter<char8_t>& Writer, std::basic_string_view<char8_t> Pars, Litchi::Http::ContextT const& Input)
+		{
+			return Formatter<std::u8string_view, char8_t>{}(Writer, ContextFor1, Input.Cookie);
+		}
+	};
+
+	template<>
+	struct Scanner<Litchi::Http::HexChunkedContextCount, char8_t>
+	{
+		bool Scan(std::u8string_view Par, Litchi::Http::HexChunkedContextCount& Input)
+		{
+			Input.Value = 0;
+			for (auto Ite : Par)
+			{
+				Input.Value *= 16;
+				if (Ite >= u8'0' && Ite <= u8'9')
+				{
+					Input.Value += (Ite - u8'0');
+				}
+				else if (Ite >= u8'a' && Ite <= u8'f')
+				{
+					Input.Value += 10 + (Ite - u8'a');
+				}
+				else if (Ite >= u8'A' && Ite <= u8'F')
+				{
+					Input.Value += 10 + (Ite - u8'A');
+				};
+			}
+			return true;
+		}
+	};
+}
+
+namespace Litchi::Http::ErrorCode
+{
+	struct HttpErrorCodeCategoryT : public std::error_category
+	{
+		virtual const char* name() const noexcept {return "Http Error";}
+
+		virtual std::string message(int _Errval) const
+		{
+			HttpErrorCode Code = static_cast<HttpErrorCode>(_Errval);
+			switch(Code)
+			{
+			case HttpErrorCode::SendRequestInSequence:
+				return "SendRequestInSequence";
+				break;
+			}
+			return "Unknow";
+		}
+	};
+
+	std::error_category const& HttpErrorCodeCategory()
+	{
+		static HttpErrorCodeCategoryT Instance;
+		return Instance;
+	}
+
+	std::error_code const& SendInSequence()
+	{
+		static std::error_code EC{ *ErrorCode::HttpErrorCode::SendRequestInSequence, ErrorCode::HttpErrorCodeCategory() };
+		return EC;
+	}
+
+	std::error_code const& RequestInSequence();
+}
+
 namespace Litchi::Http
 {
 	auto Http11::Create(Context::Ptr Owner, std::pmr::memory_resource* IMemoryResource)
@@ -36,6 +184,24 @@ namespace Litchi::Http
 		OResource->deallocate(this, Layout.Size + sizeof(Http11), alignof(Http11));
 	}
 
+	static constexpr std::u8string_view HeadOnlyRequestFor = u8"{} {} HTTP/1.1\r\nHost: {}\r\n{}{}Content-Length: 0\r\n\r\n";
+
+	std::size_t Http11::FormatSizeHeadOnlyRequest(MethodT Method, std::u8string_view Target, OptionT const& Optional, ContextT const& ContextT)
+	{
+		Potato::Format::FormatWritter<char8_t> Writer;
+		Potato::Format::Format(Writer, HeadOnlyRequestFor, Method, Target, Host, Optional, ContextT);
+		return Writer.GetWritedSize();
+	}
+
+	std::size_t Http11::FormatToHeadOnlyRequest(std::span<std::byte> Output, MethodT Method, std::u8string_view Target, OptionT const& Optional, ContextT const& ContextT)
+	{
+		Potato::Format::FormatWritter<char8_t> Writer{
+			{reinterpret_cast<char8_t*>(Output.data()), Output.size()}
+		};
+		Potato::Format::Format(Writer, HeadOnlyRequestFor, Method, Target, Host, Optional, ContextT);
+		return Writer.GetWritedSize();
+	}
+
 }
 
 /*
@@ -47,119 +213,7 @@ namespace Litchi
 	};
 }
 
-namespace Potato::Format
-{
 
-	auto Trans(Litchi::HttpMethodT Method) -> std::u8string_view
-	{
-		switch (Method)
-		{
-		case Litchi::HttpMethodT::Get:
-			return u8"GET";
-		}
-		return {};
-	}
-
-	auto Trans(Litchi::HttpConnectionT Connect) -> std::u8string_view
-	{
-		switch (Connect)
-		{
-		case Litchi::HttpConnectionT::None:
-			return {};
-		case Litchi::HttpConnectionT::Close:
-			return u8"Connection: close\r\n";
-		}
-		return {};
-	}
-
-	template<>
-	struct Formatter<Litchi::HttpMethodT, char8_t>
-	{
-		bool operator()(FormatWritter<char8_t>& Writer, std::basic_string_view<char8_t> Parameter, Litchi::HttpMethodT Input)
-		{
-			auto Tar = Trans(Input);
-			Writer.Write(std::span(Tar));
-			return !Tar.empty();
-		}
-	};
-
-	template<>
-	struct Formatter<Litchi::HttpConnectionT, char8_t>
-	{
-		bool operator()(FormatWritter<char8_t>& Writer, std::basic_string_view<char8_t> Parameter, Litchi::HttpConnectionT const& Input)
-		{
-			auto Tar = Trans(Input);
-			Writer.Write(Tar);
-			return true;
-		}
-	};
-
-	static constexpr std::u8string_view OptionF2 = u8"Accept-Encoding: {}\r\n";
-	static constexpr std::u8string_view OptionF3 = u8"Accept-Charset: {}\r\n";
-	static constexpr std::u8string_view OptionF4 = u8"Accept: {}\r\n";
-
-	template<>
-	struct Formatter<Litchi::HttpOptionT, char8_t>
-	{
-		bool operator()(FormatWritter<char8_t>& Writer, std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input)
-		{
-			bool Re = true;
-			Re = Re && Formatter<Litchi::HttpConnectionT, char8_t>{}(Writer, {}, Input.Connection);
-			if (!Input.AcceptEncoding.empty())
-			{
-				Re = Re && Formatter<std::u8string_view, char8_t>{}(Writer, OptionF2, Input.AcceptEncoding);
-			}
-			if (!Input.AcceptCharset.empty())
-			{
-				Re = Re && Formatter<std::u8string_view, char8_t>{}(Writer, OptionF3, Input.AcceptCharset);
-			}
-			if (!Input.Accept.empty())
-			{
-				Re = Re && Formatter<std::u8string_view, char8_t>{}(Writer, OptionF4, Input.Accept);
-			}
-			return Re;
-		}
-	};
-
-	
-
-	static constexpr std::u8string_view ContextFor1 = u8"Cookie: {}\r\n";
-
-	template<>
-	struct Formatter<Litchi::HttpContextT, char8_t>
-	{
-		bool operator()(FormatWritter<char8_t>& Writer, std::basic_string_view<char8_t> Pars, Litchi::HttpContextT const& Input)
-		{
-			return Formatter<std::u8string_view, char8_t>{}(Writer, ContextFor1, Input.Cookie);
-		}
-	};
-
-	template<>
-	struct Scanner<Litchi::HexChunkedContextCount, char8_t>
-	{
-		bool Scan(std::u8string_view Par, Litchi::HexChunkedContextCount& Input)
-		{
-			Input.Value = 0;
-			for (auto Ite : Par)
-			{
-				Input.Value *= 16;
-				if (Ite >= u8'0' && Ite <= u8'9')
-				{
-					Input.Value += (Ite - u8'0');
-				}
-				else if (Ite >= u8'a' && Ite <= u8'f')
-				{
-					Input.Value += 10 + (Ite - u8'a');
-				}
-				else if (Ite >= u8'A' && Ite <= u8'F')
-				{
-					Input.Value += 10 + (Ite - u8'A');
-				};
-			}
-			return true;
-		}
-	};
-}
 
 namespace Litchi
 {
@@ -189,23 +243,7 @@ namespace Litchi
 		return {};
 	}
 
-	static constexpr std::u8string_view HeadOnlyRequestFor = u8"{} {} HTTP/1.1\r\nHost: {}\r\n{}{}Content-Length: 0\r\n\r\n";
-
-	std::size_t Http11Agency::FormatSizeHeadOnlyRequest(HttpMethodT Method, std::u8string_view Target, HttpOptionT const& Optional, HttpContextT const& ContextT)
-	{
-		Potato::Format::FormatWritter<char8_t> Writer;
-		Potato::Format::Format(Writer, HeadOnlyRequestFor, Method, Target, Host, Optional, ContextT);
-		return Writer.GetWritedSize();
-	}
-
-	std::size_t Http11Agency::FormatToHeadOnlyRequest(std::span<std::byte> Output, HttpMethodT Method, std::u8string_view Target, HttpOptionT const& Optional, HttpContextT const& ContextT)
-	{
-		Potato::Format::FormatWritter<char8_t> Writer{
-			{reinterpret_cast<char8_t*>(Output.data()), Output.size()}
-		};
-		Potato::Format::Format(Writer, HeadOnlyRequestFor, Method, Target, Host, Optional, ContextT);
-		return Writer.GetWritedSize();
-	}
+	
 
 	bool Http11Agency::TryGenerateRespond()
 	{

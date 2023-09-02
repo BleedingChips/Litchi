@@ -122,7 +122,7 @@ namespace Litchi::AsioWrapper
 			SendImp(0, Data, DataCount, Executer, AppendBuffer);
 		}
 
-		virtual void ReceiveSome(
+		virtual void ReadSome(
 			void* Data, unsigned long long DataCount,
 			void (*Executer)(void* AppendData, std::error_code const&, unsigned long long), void* AppendBuffer
 		) override
@@ -139,7 +139,56 @@ namespace Litchi::AsioWrapper
 			);
 		}
 
-		virtual void SendImp(
+		virtual void ReadProtocol(
+			ReadProtocolRequire(*Executer)(
+				void* AppendData, std::error_code const& EC,
+				void* LastBuffer, unsigned long long LastBufferRequire, unsigned long long LastBufferSize,
+				unsigned long long ReadCount
+				),
+			void* AppendBuffer
+		) override
+		{
+			return ReadProtocolImp(
+				0, {}, nullptr, 0, 0, Executer, AppendBuffer
+			);
+		}
+
+		void ReadProtocolImp(
+			unsigned long long ReadCount, std::error_code const& LastEC,
+			void* LastBuffer, unsigned long long LastBufferRequire, unsigned long long LastBufferSize,
+			ReadProtocolRequire(*Executer)(
+				void* AppendData, std::error_code const& EC,
+				void* LastBuffer, unsigned long long LastBufferRequire, unsigned long long LastBufferSize,
+				unsigned long long ReadCount
+				),
+			void* AppendObject
+		)
+		{
+			auto Require = Executer(AppendObject, LastEC, LastBuffer, LastBufferRequire, LastBufferSize, ReadCount);
+			if(Require.Output != nullptr)
+			{
+				Socket.async_read_some(
+					asio::mutable_buffer{
+						Require.Output,
+						Require.RequireLength
+					},
+					[Executer, AppendObject, ReadCount, Require, this](std::error_code const& EC, std::size_t Readed)
+					{
+						ReadProtocolImp(
+							ReadCount + 1,
+							EC,
+							Require.Output,
+							Require.RequireLength,
+							Readed,
+							Executer,
+							AppendObject
+						);
+					}
+				);
+			}
+		}
+
+		void SendImp(
 			std::size_t SendedSize,
 			void const* Data, unsigned long long DataCount,
 			void (*Executer)(void* AppendData, std::error_code const&, unsigned long long), void* AppendBuffer

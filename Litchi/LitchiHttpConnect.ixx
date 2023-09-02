@@ -3,13 +3,35 @@ module;
 export module LitchiHttp;
 
 import std;
+import PotatoMisc;
 import PotatoFormat;
 import LitchiContext;
 import LitchiSocketTcp;
 
+export namespace Litchi::Http::ErrorCode
+{
+
+	std::error_category const& HttpErrorCodeCategory();
+	std::error_code const& SendInSequence();
+	std::error_code const& RequestInSequence();
+
+	enum class HttpErrorCode : int
+	{
+		SendRequestInSequence = 0,
+		ReceiveRequestInSequence = 0,
+	};
+
+	constexpr int operator*(HttpErrorCode Code) { return static_cast<int>(Code); }
+}
+
 export namespace Litchi::Http
 {
-	
+
+	struct HexChunkedContextCount
+	{
+		std::size_t Value;
+	};
+
 	enum class MethodT
 	{
 		Get,
@@ -29,9 +51,15 @@ export namespace Litchi::Http
 		std::u8string_view AcceptCharset = u8"utf-8";
 	};
 
-	struct HttpContextT
+	struct ContextT
 	{
 		std::u8string Cookie;
+	};
+
+	struct HttpRespondT
+	{
+		std::u8string_view Head;
+		std::span<std::byte const> Context;
 	};
 
 	struct Http11 : public TCP::Socket
@@ -42,58 +70,129 @@ export namespace Litchi::Http
 		virtual void Release() override;
 
 		template<typename FunT>
-		void AsyncConnect(std::u8string Host, FunT&& Func, std::pmr::memory_resource* MResource = std::pmr::get_default_resource())
-			requires(std::is_invocable_v<FunT, std::error_code const&, Ptr>)
+		void AsyncConnect(std::u8string_view Host, FunT&& Func, std::pmr::memory_resource* MResource = std::pmr::get_default_resource())
+			requires(std::is_invocable_v<FunT, std::error_code const&>)
 		{
+			Ptr ThisPtr{ this };
 			TCP::Socket::AsyncConnect(
-				Host, u8"Http", [Func = std::forward<FunT>(Func)](std::error_code const& EC, TCP::Socket::Ptr ThisPtr)
+				Host, u8"Http", [Func = std::forward<FunT>(Func), SHost = std::pmr::u8string{Host, MResource}, ThisPtr = std::move(ThisPtr)](std::error_code const& EC)
 				{
-					Ptr ThisPtr {static_cast<Http11*>(ThisPtr.GetPointer())};
-					Func(EC, std::move(ThisPtr));
+					if(EC)
+					{
+						ThisPtr->Host = std::move(SHost);
+					}
+					Func(EC);
 				}, MResource
 			);
 		}
 
-		/*
 		template<typename FunT>
-		bool AsyncRequestHeadOnly(MethodT Method, std::u8string_view Target, OptionT const& Optional, HttpContextT const& ContextT, FunT&& Func)
-			requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t, Ptr>)
+		void AsyncRequestHeadOnly(MethodT Method, std::u8string_view Target, OptionT const& Optional, ContextT const& ContextT, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
+			requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t>)
 		{
 			constexpr std::u8string_view FormatPar = u8"{} {} HTTP/1.1\r\n{}{}Context-Length: 0\r\n\r\n";
 
-			
-
-			if (SocketAgency::AbleToSend())
+			bool AbleToSend = true;
 			{
-				if (Target.empty())
-					Target = std::u8string_view{ u8"/" };
-				SendingBuffer.clear();
-				auto RequireSize = FormatSizeHeadOnlyRequest(Method, Target, Optional, ContextT);
-				SendingBuffer.resize(RequireSize);
-				FormatToHeadOnlyRequest(std::span(SendingBuffer), Method, Target, Optional, ContextT);
-				SocketAgency::AsyncSend(std::span(SendingBuffer), [Func = std::move(Func)](ErrorT Err, std::size_t Send, SocketAgency& Agency) {
-					return Func(Err, Send, static_cast<Http11Agency&>(Agency));
-					});
-				return true;
+				std::lock_guard lg(SendMutex);
+				if(!SendBuffer.empty())
+				{
+					AbleToSend = false;
+				}else
+				{
+					auto RequireSize = FormatSizeHeadOnlyRequest(Method, Target, Optional, ContextT);
+					SendBuffer.resize(RequireSize);
+					FormatToHeadOnlyRequest(std::span(SendBuffer), Method, Target, Optional, ContextT);
+				}
 			}
-			return false;
+			if(AbleToSend)
+			{
+				Ptr ThisPtr{ static_cast<Http11*>(ThisPtr.GetPointer()) };
+				Socket::AsyncSend(
+				{reinterpret_cast<std::byte const*>(SendBuffer.data()), SendBuffer.size() * sizeof(char8_t)},
+				[Func = std::forward<FunT>(Func), ThisPtr = std::move(ThisPtr)](std::error_code const& EC, std::size_t SendedSize)
+				{
+					{
+						std::lock_guard lg(ThisPtr->SendMutex);
+						ThisPtr->SendBuffer.clear();
+					}
+					Func(EC, SendedSize);
+				},
+				Resource
+				);
+			}else
+			{
+				Func(ErrorCode::SendInSequence(), 0);
+			}
 		}
-		*/
 
+		enum class ReceiveType : std::size_t
+		{
+			Head,
+			Content,
+			ChunkedContent,
+			Finish
+		};
+
+		template<typename FuncT>
+		void AsyncReceive(FuncT&& Func, std::pmr::memory_resource* Resource)
+			requires(std::is_invocable_r_v<std::span<std::byte*>, FuncT, std::error_code const&, ReceiveType>)
+		{
+			bool AbleToReceive = false;
+			{
+				std::lock_guard lg(ReceiveMutex);
+				if(!ReadInSequence)
+				{
+					ReadInSequence = true;
+					AbleToReceive = true;
+				}
+			}
+
+			if(AbleToReceive)
+			{
+				Type = ReceiveType::Head;
+				//ReceiveBuffer.clear();
+				//ReceiveBuffer.resize(1024);
+
+				Socket::AsyncReadProtocol(
+					[Func = std::forward<FuncT>(Func)](std::error_code const& EC, ProtocolReaded Readed)->std::span<std::byte>
+					{
+						// to do
+						return {};
+					},
+					Resource
+				);
+			}else
+			{
+				Ptr ThisPtr{ this };
+				Func(ErrorCode::RequestInSequence(), ReceiveType::Finish, std::move(ThisPtr));
+			}
+		}
 
 	protected:
 
+		//std::optional<ReceiveType> HandleProtocol();
+
+		std::size_t FormatSizeHeadOnlyRequest(MethodT Method, std::u8string_view Target, OptionT const& Optional, ContextT const& ContextT);
+		std::size_t FormatToHeadOnlyRequest(std::span<std::byte> Output, MethodT Method, std::u8string_view Target, OptionT const& Optional, ContextT const& ContextT);
+
 		Http11(Context::Ptr Owner, void* Adress, std::pmr::memory_resource* IMResource)
-			: Socket(std::move(Owner), Adress, IMResource), TemporaryBuffer(IMResource), SendBuffer(IMResource), RespondBuffer(IMResource)
+			: Socket(std::move(Owner), Adress, IMResource), SendBuffer(IMResource), ReceiveBuffer(IMResource)
 		{
 		}
 
-		std::mutex HttpMutex;
-		std::pmr::vector<std::byte> TemporaryBuffer;
-		std::pmr::vector<std::byte> SendBuffer;
-		std::pmr::vector<std::byte> RespondBuffer;
-	};
+		std::u8string Host;
 
+		std::mutex SendMutex;
+		std::pmr::vector<std::byte> SendBuffer;
+
+		std::mutex ReceiveMutex;
+		bool ReadInSequence = false;
+		std::pmr::vector<std::byte> ReceiveBuffer;
+		Potato::Misc::IndexSpan<> AvailableReceiveBuffer;
+		ReceiveType Type = ReceiveType::Finish;
+		std::size_t ChunkRequres;
+	};
 
 
 

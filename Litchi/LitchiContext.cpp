@@ -1,8 +1,18 @@
 module;
 
 #include <cassert>
+#include <cerrno>
 
 module LitchiContext;
+
+namespace Litchi::ErrorCode
+{
+	std::error_code const& BadAllocateErrorCode()
+	{
+		static std::error_code EC{ ENOMEM, std::system_category() };
+		return EC;
+	}
+}
 
 namespace Litchi
 {

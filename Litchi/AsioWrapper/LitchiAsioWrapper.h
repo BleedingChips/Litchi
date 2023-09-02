@@ -44,9 +44,24 @@ namespace Litchi::AsioWrapper
 			void (*Executer)(void* AppendData, std::error_code const&, unsigned long long), void* AppendBuffer
 		) = 0;
 
-		virtual void ReceiveSome(
+		virtual void ReadSome(
 			void* Data, unsigned long long DataCount,
 			void (*Executer)(void* AppendData, std::error_code const&, unsigned long long), void* AppendBuffer
+		) = 0;
+
+		struct ReadProtocolRequire
+		{
+			void* Output;
+			unsigned long long RequireLength;
+		};
+
+		virtual void ReadProtocol(
+			ReadProtocolRequire(*Executer)(
+				void* AppendData, std::error_code const& EC, 
+				void* LastBuffer, unsigned long long LastBufferRequire, unsigned long long LastBufferSize,
+				unsigned long long ReadCount
+				), 
+				void* AppendBuffer
 		) = 0;
 	};
 

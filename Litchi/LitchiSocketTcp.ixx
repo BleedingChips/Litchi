@@ -1,7 +1,7 @@
 module;
 
 #include <cassert>
-#include <cerrno>
+
 #include "AsioWrapper/LitchiAsioWrapper.h"
 
 export module LitchiSocketTcp;
@@ -21,7 +21,7 @@ export namespace Litchi::TCP
 
 		template<typename FunT>
 		void AsyncConnect(std::u8string_view Host, std::u8string_view Server, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
-			requires(std::is_invocable_v<FunT, std::error_code const&, Ptr>);
+			requires(std::is_invocable_v<FunT, std::error_code const&>);
 
 		bool Connect(std::u8string_view Host, std::u8string_view Server, std::pmr::memory_resource* MemoryResource = std::pmr::get_default_resource())
 		{
@@ -29,7 +29,7 @@ export namespace Litchi::TCP
 			auto Fur = Pro.get_future();
 			AsyncConnect(
 				Host, Server,
-				[&](std::error_code const& EC, Ptr)
+				[&](std::error_code const& EC)
 				{
 					Pro.set_value(!EC);
 				},
@@ -40,11 +40,11 @@ export namespace Litchi::TCP
 
 		template<typename FunT>
 		void AsyncSend(std::span<std::byte const*> Data, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
-			requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t, Ptr>);
+			requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t>);
 
 		template<typename FunT>
 		void AsyncReadSome(std::span<std::byte> Data, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
-			requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t, Ptr>)
+			requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t>)
 		{
 			Socket::Ptr ThisPtr{ this };
 			auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), std::move(ThisPtr), Resource);
@@ -52,26 +52,82 @@ export namespace Litchi::TCP
 			if(Block != nullptr)
 			{
 				Owner->AddRequest();
-				SocketPtr->ReceiveSome(
+				SocketPtr->ReadSome(
 					Data.data(), Data.size(),
 					[](void* AppendData, std::error_code const& EC)
 					{
 						auto Block = static_cast<Type>(AppendData);
 						auto OwnerPtr = std::move(Block->Ptr);
 						assert(OwnerPtr);
-						Block->Func(EC, OwnerPtr);
+						Block->Func(EC);
 						DestroyTemporaryBlockKeeper(Block);
 						OwnerPtr->Owner->SubRequest();
 					}, Block, Resource
 				);
 			}else
 			{
-				std::error_code EC{ ENOMEM, std::system_category() };
+				
 				Func(
-					EC,
-					std::move(ThisPtr)
+					ErrorCode::BadAllocateErrorCode()
 				);
 			}
+		}
+
+		struct ProtocolReaded
+		{
+			std::span<std::byte> LastBuffer;
+			std::size_t LastReaded;
+		};
+
+		template<typename FunT>
+		void AsyncReadProtocol(FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
+			requires(std::is_invocable_r_v<std::span<std::byte>, FunT, std::error_code const&, ProtocolReaded>)
+		{
+			Socket::Ptr ThisPtr{ this };
+			auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), std::move(ThisPtr), Resource);
+			using Type = decltype(Block);
+
+			if(Block != nullptr)
+			{
+				Owner->AddRequest();
+				return SocketPtr->ReadProtocol(
+					[](
+					void* AppendData, std::error_code const& EC,
+						void* LastBuffer, unsigned long long LastBufferRequire, unsigned long long LastBufferSize,
+						unsigned long long ReadCount
+						)->AsioWrapper::TCPSocket::ReadProtocolRequire
+					{
+						ProtocolReaded LasRead{
+							{reinterpret_cast<std::byte*>(LastBuffer), LastBufferRequire},
+							LastBufferSize
+						};
+						Type Block = static_cast<Type>(AppendData);
+						auto Output = Block->Func(EC, LasRead);
+						if(Output.size() == 0)
+						{
+							Block->Ptr->Owner->SubRequest();
+							DestroyTemporaryBlockKeeper(Block);
+							return AsioWrapper::TCPSocket::ReadProtocolRequire{
+								nullptr, 0
+							};
+						}
+						return AsioWrapper::TCPSocket::ReadProtocolRequire{
+							static_cast<void*>(Output.data()),
+							Output.size()
+						};
+					},
+					Block
+				);
+			}else
+			{
+				Func(
+					ErrorCode::BadAllocateErrorCode(),
+					ProtocolReaded{
+					{}, 0
+					}
+				);
+			}
+			
 		}
 
 	protected:
@@ -89,7 +145,7 @@ export namespace Litchi::TCP
 
 	template<typename FunT>
 	void Socket::AsyncConnect(std::u8string_view Host, std::u8string_view Server, FunT&& Func, std::pmr::memory_resource* Resource)
-		requires(std::is_invocable_v<FunT, std::error_code const&, Ptr>)
+		requires(std::is_invocable_v<FunT, std::error_code const&>)
 	{
 		Socket::Ptr ThisPtr{this};
 		auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), std::move(ThisPtr), Resource);
@@ -105,16 +161,15 @@ export namespace Litchi::TCP
 					auto Block = static_cast<Type>(AppendData);
 					auto OwnerPtr = std::move(Block->Ptr);
 					assert(OwnerPtr);
-					Block->Func(EC, OwnerPtr);
+					Block->Func(EC);
 					DestroyTemporaryBlockKeeper(Block);
 					OwnerPtr->Owner->SubRequest();
 				}, Block, Resource
 			);
 		}else
 		{
-			std::error_code EC{ ENOMEM, std::system_category()};
 			Func(
-				EC,
+				ErrorCode::BadAllocateErrorCode(),
 				std::move(ThisPtr)
 			);
 		}
@@ -122,7 +177,7 @@ export namespace Litchi::TCP
 
 	template<typename FunT>
 	void Socket::AsyncSend(std::span<std::byte const*> Data, FunT&& Func, std::pmr::memory_resource* Resource)
-		requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t, Ptr>)
+		requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t>)
 	{
 		Socket::Ptr ThisPtr{ this };
 		auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), std::move(ThisPtr), Resource);
@@ -137,16 +192,15 @@ export namespace Litchi::TCP
 					auto Block = static_cast<Type>(AppendData);
 					auto OwnerPtr = std::move(Block->Ptr);
 					assert(OwnerPtr);
-					Block->Func(EC, Sended, OwnerPtr);
+					Block->Func(EC, Sended);
 					DestroyTemporaryBlockKeeper(Block);
 					OwnerPtr->Owner->SubRequest();
 				}, Block, Resource
 			);
 		}else
 		{
-			std::error_code EC{ ENOMEM, std::system_category() };
 			Func(
-				EC,
+				ErrorCode::BadAllocateErrorCode(),
 				std::move(ThisPtr)
 			);
 		}
