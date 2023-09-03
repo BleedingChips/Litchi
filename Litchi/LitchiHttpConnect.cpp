@@ -202,6 +202,111 @@ namespace Litchi::Http
 		return Writer.GetWritedSize();
 	}
 
+	auto FindHeadOptionalValue(std::u8string_view Key, std::u8string_view Head) -> std::optional<std::u8string_view>
+	{
+		constexpr std::u8string_view S1 = u8": ";
+		constexpr std::u8string_view S2 = u8"\r\n";
+		while (!Head.empty())
+		{
+			auto Index = Head.find(Key);
+			if (Index < Head.size())
+			{
+				Head = Head.substr(Index + Key.size());
+				Index = Head.find(S1);
+				if (Index < Head.size())
+				{
+					Head = Head.substr(Index + S1.size());
+					Index = Head.find(S2);
+					if (Index < Head.size())
+						return Head.substr(0, Index);
+				}
+			}
+			else
+				return {};
+		}
+		return {};
+	}
+
+	void Http11::FixInputBuffer(ProtocolReaded Readed)
+	{
+		if(ReceiveBuffer.size() > AvailableReceiveBuffer.End())
+		{
+			AvailableReceiveBuffer.BackwardEnd(Readed.LastReaded);
+			ReceiveBuffer.resize(
+				AvailableReceiveBuffer.End()
+			);
+		}
+	}
+
+	std::span<std::byte> Http11::FixOutputBuffer()
+	{
+		if(AvailableReceiveBuffer.Begin() * 2 >= ReceiveBuffer.size())
+		{
+			ReceiveBuffer.erase(
+				ReceiveBuffer.begin(),
+				ReceiveBuffer.begin() + AvailableReceiveBuffer.Begin()
+			);
+			AvailableReceiveBuffer = {
+			0,
+				AvailableReceiveBuffer.Size()
+			};
+		}
+		auto Size = ReceiveBuffer.size() % 1024;
+		if(Size == 0)
+		{
+			ReceiveBuffer.resize(
+				ReceiveBuffer.size() + 1024
+			);
+			return std::span(ReceiveBuffer).subspan(AvailableReceiveBuffer.End());
+		}else
+		{
+			ReceiveBuffer.resize(
+				2048 - Size
+			);
+			return std::span(ReceiveBuffer).subspan(AvailableReceiveBuffer.End());
+		}
+	}
+
+	std::span<std::byte> Http11::HandleHead()
+	{
+		constexpr std::u8string_view Spe = u8"\r\n\r\n";
+		std::u8string_view Output{ reinterpret_cast<char8_t*>(ReceiveBuffer.data() + AvailableReceiveBuffer.Begin()), AvailableReceiveBuffer.Size() };
+		auto K = Output.find(Spe);
+		if(K == std::u8string_view::npos)
+		{
+			return {};
+		}else
+		{
+			assert(K != 0);
+			K += Spe.size();
+			std::span<std::byte> Data = std::span(ReceiveBuffer).subspan(AvailableReceiveBuffer.Begin(), K);
+			AvailableReceiveBuffer.ForwardBegin(K);
+
+			auto Str = Output.substr(0, K);
+			auto P = FindHeadOptionalValue(u8"Transfer-Encoding", Str);
+			if (P.has_value() && *P == u8"chunked")
+			{
+				Type = ReceiveType::ChunkedContent;
+				ChunkedContextRequire.reset();
+			}else
+			{
+				P = FindHeadOptionalValue(u8"Content-Length", Str);
+				if (P.has_value())
+				{
+					std::size_t ContextLength = 0;
+					Potato::Format::DirectScan(*P, ContextLength);
+					Type = ReceiveType::Content;
+					ChunkedContextRequire = ContextLength;
+				}else
+				{
+					Type = ReceiveType::Finish;
+					assert(false);
+				}
+			}
+			return Data;
+		}
+	}
+
 }
 
 /*

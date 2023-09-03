@@ -39,7 +39,7 @@ export namespace Litchi::TCP
 		}
 
 		template<typename FunT>
-		void AsyncSend(std::span<std::byte const*> Data, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
+		void AsyncSend(std::span<std::byte const> Data, FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
 			requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t>);
 
 		template<typename FunT>
@@ -169,14 +169,13 @@ export namespace Litchi::TCP
 		}else
 		{
 			Func(
-				ErrorCode::BadAllocateErrorCode(),
-				std::move(ThisPtr)
+				ErrorCode::BadAllocateErrorCode()
 			);
 		}
 	}
 
 	template<typename FunT>
-	void Socket::AsyncSend(std::span<std::byte const*> Data, FunT&& Func, std::pmr::memory_resource* Resource)
+	void Socket::AsyncSend(std::span<std::byte const> Data, FunT&& Func, std::pmr::memory_resource* Resource)
 		requires(std::is_invocable_v<FunT, std::error_code const&, std::size_t>)
 	{
 		Socket::Ptr ThisPtr{ this };
@@ -186,7 +185,7 @@ export namespace Litchi::TCP
 		{
 			Owner->AddRequest();
 			SocketPtr->Send(
-				Data,
+				Data.data(), Data.size(),
 				[](void* AppendData, std::error_code const& EC, unsigned long long Sended)
 				{
 					auto Block = static_cast<Type>(AppendData);
@@ -195,7 +194,7 @@ export namespace Litchi::TCP
 					Block->Func(EC, Sended);
 					DestroyTemporaryBlockKeeper(Block);
 					OwnerPtr->Owner->SubRequest();
-				}, Block, Resource
+				}, Block
 			);
 		}else
 		{
