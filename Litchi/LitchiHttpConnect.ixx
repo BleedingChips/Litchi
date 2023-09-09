@@ -58,10 +58,16 @@ export namespace Litchi::Http
 		std::u8string Cookie;
 	};
 
-	struct HttpRespondT
+	struct Respond
 	{
-		std::u8string_view Head;
-		std::span<std::byte const> Context;
+		Respond(std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
+			: Head(Resource), Context(Resource) {}
+		Respond(Respond const&) = default;
+		Respond(Respond&&) = default;
+		Respond& operator=(Respond const&) = default;
+		Respond& operator=(Respond &&) = default;
+		std::pmr::u8string Head;
+		std::pmr::vector<std::byte> Context;
 	};
 
 	struct Http11 : public TCP::Socket
@@ -79,7 +85,7 @@ export namespace Litchi::Http
 			TCP::Socket::AsyncConnect(
 				Host, u8"Http", [Func = std::forward<FunT>(Func), SHost = std::pmr::u8string{Host, MResource}, ThisPtr = std::move(ThisPtr)](std::error_code const& EC)
 				{
-					if(EC)
+					if(!EC)
 					{
 						ThisPtr->Host = std::move(SHost);
 					}
@@ -109,7 +115,7 @@ export namespace Litchi::Http
 			}
 			if(AbleToSend)
 			{
-				Ptr ThisPtr{ static_cast<Http11*>(ThisPtr.GetPointer()) };
+				Ptr ThisPtr{ this };
 				Socket::AsyncSend(
 				std::span(SendBuffer),
 				[Func = std::forward<FunT>(Func), ThisPtr = std::move(ThisPtr), RequireSize = SendBuffer.size()](std::error_code const& EC, std::size_t SendedSize)
@@ -138,8 +144,11 @@ export namespace Litchi::Http
 		};
 
 		template<typename FuncT>
-		void AsyncReceive(FuncT&& Func, std::pmr::memory_resource* Resource)
-			requires(std::is_invocable_r_v<std::span<std::byte*>, FuncT, std::error_code const&, ReceiveType, std::size_t>)
+		void AsyncReceive(FuncT&& Func, 
+		std::pmr::memory_resource* RespondResource = std::pmr::get_default_resource(), 
+		std::pmr::memory_resource* FunctionResource = std::pmr::get_default_resource()
+		)
+			requires(std::is_invocable_v<FuncT, std::error_code const&, Respond>)
 		{
 			bool AbleToReceive = false;
 			{
@@ -154,65 +163,35 @@ export namespace Litchi::Http
 			if(AbleToReceive)
 			{
 				Type = ReceiveType::Head;
-
-				//ReceiveBuffer.clear();
-				//ReceiveBuffer.resize(1024);
-
 				Socket::AsyncReadProtocol(
-					[Func = std::forward<FuncT>(Func), this](std::error_code const& EC, ProtocolReaded Readed)->std::span<std::byte>
+					[Func = std::forward<FuncT>(Func), this, FinalRespond = Respond{ RespondResource }]
+					 (std::error_code const& EC, ReadRespond LastReaded) mutable ->ReadRequire
 					{
-						FixInputBuffer(Readed);
-						while(true)
+						auto Re = Handle(EC, LastReaded, FinalRespond);
+						if(Re.has_value())
 						{
-							switch (Type)
-							{
-							case ReceiveType::Head:
-								{
-									auto Cur = HandleHead();
-									if(!Cur.empty())
-									{
-										auto Re = Func({}, ReceiveType::Head, Cur.size());
-										std::size_t MinSize = std::min(Cur.size(), Re.size());
-										std::copy(
-											Cur.begin(), Cur.begin() + MinSize,
-											Re
-										);
-									}else
-									{
-										return FixOutputBuffer();
-									}
-									break;
-								}
-							case ReceiveType::Content:
-								{
-									// todo
-									break;
-								}
-							case ReceiveType::ChunkedContent:
-								{
-									break;
-								}
-							}
-							return {};
+							return *Re;
+						}else
+						{
+							Func(EC, std::move(FinalRespond));
 						}
-						
 						return {};
 					},
-					Resource
+					FunctionResource
 				);
 			}else
 			{
 				Ptr ThisPtr{ this };
-				Func(ErrorCode::RequestInSequence(), ReceiveType::Finish, std::move(ThisPtr));
+				Func(ErrorCode::RequestInSequence(), { RespondResource });
 			}
 		}
 
 	protected:
 
-		void FixInputBuffer(ProtocolReaded Readed);
-		std::span<std::byte> FixOutputBuffer();
-		std::span<std::byte> HandleHead();
+		//template<typename Func>
 
+		std::optional<ReadRequire> Handle(std::error_code const& EC, ReadRespond const& LastRespond, Respond& OutputRespond);
+		std::span<std::byte> FixOutputBuffer();
 		std::size_t FormatSizeHeadOnlyRequest(MethodT Method, std::u8string_view Target, OptionT const& Optional, ContextT const& ContextT);
 		std::size_t FormatToHeadOnlyRequest(std::span<std::byte> Output, MethodT Method, std::u8string_view Target, OptionT const& Optional, ContextT const& ContextT);
 
@@ -228,10 +207,12 @@ export namespace Litchi::Http
 
 		std::mutex ReceiveMutex;
 		bool ReadInSequence = false;
+
 		std::pmr::vector<std::byte> ReceiveBuffer;
 		Potato::Misc::IndexSpan<> AvailableReceiveBuffer;
 		ReceiveType Type = ReceiveType::Finish;
-		std::optional<std::size_t> ChunkedContextRequire;
+		std::optional<std::size_t> ContextRequire;
+		std::optional<std::size_t> LastRespondContextSize;
 	};
 
 

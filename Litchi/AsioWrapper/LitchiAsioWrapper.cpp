@@ -140,49 +140,73 @@ namespace Litchi::AsioWrapper
 		}
 
 		virtual void ReadProtocol(
-			ReadProtocolRequire(*Executer)(
-				void* AppendData, std::error_code const& EC,
-				void* LastBuffer, unsigned long long LastBufferRequire, unsigned long long LastBufferSize,
-				unsigned long long ReadCount
+			Require(*Executer)(
+				void* Object,
+				unsigned long long Step,
+				std::error_code const& EC,
+				Respond Respond
 				),
-			void* AppendBuffer
+			void* AppendObject
 		) override
 		{
-			return ReadProtocolImp(
-				0, {}, nullptr, 0, 0, Executer, AppendBuffer
-			);
+			auto RequireData = Executer(AppendObject, 0, {}, {});
+			if(RequireData.OutputBuffer != nullptr)
+			{
+				Socket.async_read_some(
+					asio::mutable_buffer{
+						RequireData.OutputBuffer,
+						RequireData.BufferSize
+					},
+					[RequireData, Executer, AppendObject, this](std::error_code const& EC, std::size_t Readed)
+					{
+						this->ReadProtocolImp(
+							1, EC, Readed, RequireData, Executer, AppendObject
+						);
+					}
+				);
+			}
 		}
 
 		void ReadProtocolImp(
-			unsigned long long ReadCount, std::error_code const& LastEC,
-			void* LastBuffer, unsigned long long LastBufferRequire, unsigned long long LastBufferSize,
-			ReadProtocolRequire(*Executer)(
-				void* AppendData, std::error_code const& EC,
-				void* LastBuffer, unsigned long long LastBufferRequire, unsigned long long LastBufferSize,
-				unsigned long long ReadCount
+			std::size_t Step, std::error_code const& LastEC,
+			std::size_t TotalReadSize,
+			Require LastRequire,
+			Require(*Executer)(
+				void* Object,
+				std::size_t Step,
+				std::error_code const& EC,
+				Respond Respond
 				),
 			void* AppendObject
 		)
 		{
-			auto Require = Executer(AppendObject, LastEC, LastBuffer, LastBufferRequire, LastBufferSize, ReadCount);
-			if(Require.Output != nullptr)
+			if(LastEC || !LastRequire.ClearnessSize || LastRequire.BufferSize <= TotalReadSize)
+			{
+				auto NewRequire = Executer(AppendObject, Step, LastEC, { LastRequire, TotalReadSize });
+				if(NewRequire.OutputBuffer != nullptr)
+				{
+					Socket.async_read_some(
+						asio::mutable_buffer{
+							reinterpret_cast<std::byte*>(NewRequire.OutputBuffer),
+							NewRequire.BufferSize
+						},
+						[Step, NewRequire, Executer, AppendObject, this](std::error_code const& EC, std::size_t Readed)
+						{
+							ReadProtocolImp(Step + 1, EC, Readed, NewRequire, Executer, AppendObject);
+						}
+					);
+				}
+			}else
 			{
 				Socket.async_read_some(
 					asio::mutable_buffer{
-						Require.Output,
-						Require.RequireLength
+						reinterpret_cast<std::byte*>(LastRequire.OutputBuffer) + TotalReadSize,
+						LastRequire.BufferSize - TotalReadSize
 					},
-					[Executer, AppendObject, ReadCount, Require, this](std::error_code const& EC, std::size_t Readed)
+					[Step, TotalReadSize, LastRequire, Executer, AppendObject, this](std::error_code const& EC, std::size_t Readed)
 					{
-						ReadProtocolImp(
-							ReadCount + 1,
-							EC,
-							Require.Output,
-							Require.RequireLength,
-							Readed,
-							Executer,
-							AppendObject
-						);
+						auto TS = TotalReadSize + Readed;
+						ReadProtocolImp(Step, EC, TS, LastRequire, Executer, AppendObject);
 					}
 				);
 			}

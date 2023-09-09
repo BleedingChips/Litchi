@@ -73,15 +73,22 @@ export namespace Litchi::TCP
 			}
 		}
 
-		struct ProtocolReaded
+		struct ReadRequire
 		{
-			std::span<std::byte> LastBuffer;
-			std::size_t LastReaded;
+			bool ClearnessLength = false;
+			std::span<std::byte> OutputBuffer;
+		};
+
+		struct ReadRespond
+		{
+			std::size_t Step = 0;
+			ReadRequire LastRequire;
+			std::size_t LastReadSize = 0;
 		};
 
 		template<typename FunT>
 		void AsyncReadProtocol(FunT&& Func, std::pmr::memory_resource* Resource = std::pmr::get_default_resource())
-			requires(std::is_invocable_r_v<std::span<std::byte>, FunT, std::error_code const&, ProtocolReaded>)
+			requires(std::is_invocable_r_v<ReadRequire, FunT, std::error_code const&, ReadRespond>)
 		{
 			Socket::Ptr ThisPtr{ this };
 			auto Block = CreateTemporaryBlockKeeper(std::forward<FunT>(Func), std::move(ThisPtr), Resource);
@@ -90,6 +97,46 @@ export namespace Litchi::TCP
 			if(Block != nullptr)
 			{
 				Owner->AddRequest();
+
+				SocketPtr->ReadProtocol(
+					[](void* Object,
+						std::size_t Step,
+						std::error_code const& EC,
+						AsioWrapper::TCPSocket::Respond Respond
+						)->AsioWrapper::TCPSocket::Require
+					{
+						auto Block = static_cast<Type>(Object);
+						ReadRespond LastRequire{
+							Step,
+							ReadRequire{
+								Respond.LastRequire.ClearnessSize,
+								{static_cast<std::byte*>(Respond.LastRequire.OutputBuffer), Respond.LastRequire.BufferSize}
+							},
+							Respond.ReadedSize
+						};
+						ReadRequire NewRequire = Block->Func(EC, LastRequire);
+						if(NewRequire.OutputBuffer.size() == 0)
+						{
+							Block->Ptr->Owner->SubRequest();
+							DestroyTemporaryBlockKeeper(Block);
+							return AsioWrapper::TCPSocket::Require{
+								nullptr,
+								0,
+								true
+							};
+						}else
+						{
+							return AsioWrapper::TCPSocket::Require{
+							NewRequire.OutputBuffer.data(),
+							NewRequire.OutputBuffer.size(),
+							NewRequire.ClearnessLength
+							};
+						}
+					},
+					Block
+				);
+
+				/*
 				return SocketPtr->ReadProtocol(
 					[](
 					void* AppendData, std::error_code const& EC,
@@ -118,16 +165,14 @@ export namespace Litchi::TCP
 					},
 					Block
 				);
+				*/
 			}else
 			{
 				Func(
 					ErrorCode::BadAllocateErrorCode(),
-					ProtocolReaded{
-					{}, 0
-					}
+					{}
 				);
 			}
-			
 		}
 
 	protected:

@@ -39,7 +39,7 @@ int main()
 	{
 		std::promise<bool> Uio2;
 
-		auto Fur2 = Uio2.get();
+		auto Fur2 = Uio2.get_future();
 
 		std::cout << "Request Head Only" << std::endl;
 
@@ -55,9 +55,21 @@ int main()
 
 		std::u8string Str;
 
-		Http1->AsyncReadProtocol(
-			
+		std::promise<Http::Respond> PRes;
+
+		auto F2 = PRes.get_future();
+
+		Http1->AsyncReceive(
+			[&](std::error_code const& RC, Http::Respond Res)
+			{
+				PRes.set_value(std::move(Res));
+			}
 		);
+
+		auto Iu = F2.get();
+
+		volatile int i = 0;
+
 
 		/*
 		Age.AsyncRequestHeadOnly(HttpMethodT::Get, {}, {}, {}, [&](

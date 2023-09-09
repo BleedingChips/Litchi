@@ -1,4 +1,5 @@
 #pragma once
+#include <stdint.h>
 
 namespace std
 {
@@ -49,19 +50,27 @@ namespace Litchi::AsioWrapper
 			void (*Executer)(void* AppendData, std::error_code const&, unsigned long long), void* AppendBuffer
 		) = 0;
 
-		struct ReadProtocolRequire
+		struct Require
 		{
-			void* Output;
-			unsigned long long RequireLength;
+			void* OutputBuffer = nullptr;
+			unsigned long long BufferSize = 0;
+			bool ClearnessSize = false;
+		};
+
+		struct Respond
+		{
+			Require LastRequire;
+			unsigned long long ReadedSize = 0;
 		};
 
 		virtual void ReadProtocol(
-			ReadProtocolRequire(*Executer)(
-				void* AppendData, std::error_code const& EC, 
-				void* LastBuffer, unsigned long long LastBufferRequire, unsigned long long LastBufferSize,
-				unsigned long long ReadCount
+			Require(*Executer)(
+			void* Object,
+				unsigned long long Step,
+				std::error_code const& EC,
+				Respond Respond
 				), 
-				void* AppendBuffer
+				void* Object
 		) = 0;
 	};
 

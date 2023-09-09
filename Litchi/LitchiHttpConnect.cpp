@@ -150,7 +150,11 @@ namespace Litchi::Http::ErrorCode
 		return EC;
 	}
 
-	std::error_code const& RequestInSequence();
+	std::error_code const& RequestInSequence()
+	{
+		static std::error_code EC{ *ErrorCode::HttpErrorCode::ReceiveRequestInSequence, ErrorCode::HttpErrorCodeCategory() };
+		return EC;
+	}
 }
 
 namespace Litchi::Http
@@ -227,20 +231,24 @@ namespace Litchi::Http
 		return {};
 	}
 
-	void Http11::FixInputBuffer(ProtocolReaded Readed)
+	/*
+	void Http11::FixInputBuffer(ReadRespond Readed)
 	{
 		if(ReceiveBuffer.size() > AvailableReceiveBuffer.End())
 		{
-			AvailableReceiveBuffer.BackwardEnd(Readed.LastReaded);
+			AvailableReceiveBuffer.BackwardEnd(Readed.LastReadSize);
 			ReceiveBuffer.resize(
 				AvailableReceiveBuffer.End()
 			);
 		}
 	}
 
+	
+	*/
+
 	std::span<std::byte> Http11::FixOutputBuffer()
 	{
-		if(AvailableReceiveBuffer.Begin() * 2 >= ReceiveBuffer.size())
+		if (AvailableReceiveBuffer.Begin() * 2 >= ReceiveBuffer.size())
 		{
 			ReceiveBuffer.erase(
 				ReceiveBuffer.begin(),
@@ -252,13 +260,14 @@ namespace Litchi::Http
 			};
 		}
 		auto Size = ReceiveBuffer.size() % 1024;
-		if(Size == 0)
+		if (Size == 0)
 		{
 			ReceiveBuffer.resize(
 				ReceiveBuffer.size() + 1024
 			);
 			return std::span(ReceiveBuffer).subspan(AvailableReceiveBuffer.End());
-		}else
+		}
+		else
 		{
 			ReceiveBuffer.resize(
 				2048 - Size
@@ -267,43 +276,169 @@ namespace Litchi::Http
 		}
 	}
 
-	std::span<std::byte> Http11::HandleHead()
+	auto Http11::Handle(std::error_code const& EC, ReadRespond const& LastRespond, Respond& OutputRespond) -> std::optional<ReadRequire>
 	{
 		constexpr std::u8string_view Spe = u8"\r\n\r\n";
-		std::u8string_view Output{ reinterpret_cast<char8_t*>(ReceiveBuffer.data() + AvailableReceiveBuffer.Begin()), AvailableReceiveBuffer.Size() };
-		auto K = Output.find(Spe);
-		if(K == std::u8string_view::npos)
+		constexpr std::u8string_view SubSpe = u8"\r\n";
+
+		if(LastRespondContextSize.has_value())
 		{
-			return {};
+			OutputRespond.Context.resize(*LastRespondContextSize + LastRespond.LastReadSize);
+			LastRespondContextSize.reset();
 		}else
 		{
-			assert(K != 0);
-			K += Spe.size();
-			std::span<std::byte> Data = std::span(ReceiveBuffer).subspan(AvailableReceiveBuffer.Begin(), K);
-			AvailableReceiveBuffer.ForwardBegin(K);
+			ReceiveBuffer.resize(AvailableReceiveBuffer.End() + LastRespond.LastReadSize);
+			AvailableReceiveBuffer.BackwardEnd(LastRespond.LastReadSize);
+		}
 
-			auto Str = Output.substr(0, K);
-			auto P = FindHeadOptionalValue(u8"Transfer-Encoding", Str);
-			if (P.has_value() && *P == u8"chunked")
+		while(true)
+		{
+			switch(Type)
 			{
-				Type = ReceiveType::ChunkedContent;
-				ChunkedContextRequire.reset();
-			}else
-			{
-				P = FindHeadOptionalValue(u8"Content-Length", Str);
-				if (P.has_value())
+			case ReceiveType::Head:
 				{
-					std::size_t ContextLength = 0;
-					Potato::Format::DirectScan(*P, ContextLength);
-					Type = ReceiveType::Content;
-					ChunkedContextRequire = ContextLength;
-				}else
-				{
-					Type = ReceiveType::Finish;
-					assert(false);
+					std::u8string_view TotalStr{ reinterpret_cast<char8_t*>(ReceiveBuffer.data()), ReceiveBuffer.size()};;
+					std::u8string_view HeadStr = AvailableReceiveBuffer.Slice(TotalStr);
+					auto K = HeadStr.find(Spe);
+					if (K == std::u8string_view::npos)
+					{
+						if(EC)
+						{
+							OutputRespond.Head = HeadStr;
+							ReceiveBuffer.clear();
+							AvailableReceiveBuffer = {};
+							Type = ReceiveType::Finish;
+							return std::nullopt;
+						}else
+							return ReadRequire{false, FixOutputBuffer()};
+					}else
+					{
+						auto Str = HeadStr.substr(0, K);
+						AvailableReceiveBuffer = AvailableReceiveBuffer.SubIndex(K);
+						OutputRespond.Head = Str;
+						auto P = FindHeadOptionalValue(u8"Transfer-Encoding", Str);
+						if (P.has_value() && *P == u8"chunked")
+						{
+							Type = ReceiveType::ChunkedContent;
+							ContextRequire.reset();
+						}
+						else
+						{
+							P = FindHeadOptionalValue(u8"Content-Length", Str);
+							if (P.has_value())
+							{
+								std::size_t ContextLength = 0;
+								Potato::Format::DirectScan(*P, ContextLength);
+								Type = ReceiveType::Content;
+								ContextRequire = ContextLength;
+							}
+							else
+							{
+								Type = ReceiveType::Finish;
+								return std::nullopt;
+							}
+						}
+					}
+					break;
 				}
+			case ReceiveType::Content:
+				{
+					OutputRespond.Context.resize(*ContextRequire);
+					if (AvailableReceiveBuffer.Size() >= *ContextRequire)
+					{
+						std::copy(
+							ReceiveBuffer.begin() + AvailableReceiveBuffer.Begin(),
+							ReceiveBuffer.begin() + AvailableReceiveBuffer.Begin() + *ContextRequire,
+							OutputRespond.Context.begin()
+						);
+						AvailableReceiveBuffer = AvailableReceiveBuffer.SubIndex(*ContextRequire);
+						Type = ReceiveType::Finish;
+						return std::nullopt;
+					}else
+					{
+						std::copy(
+							ReceiveBuffer.begin() + AvailableReceiveBuffer.Begin(),
+							ReceiveBuffer.begin() + AvailableReceiveBuffer.End(),
+							OutputRespond.Context.begin()
+						);
+						auto OutputSpan = std::span(OutputRespond.Context).subspan(AvailableReceiveBuffer.Size());
+						LastRespondContextSize = AvailableReceiveBuffer.Size();
+						AvailableReceiveBuffer = {};
+						Type = ReceiveType::Finish;
+						
+						return ReadRequire{true, OutputSpan };
+					}
+					break;
+				}
+			case ReceiveType::ChunkedContent:
+				{
+					if(!ContextRequire.has_value())
+					{
+						std::u8string_view TotalStr{ reinterpret_cast<char8_t*>(ReceiveBuffer.data()), ReceiveBuffer.size() };;
+						std::u8string_view HeadStr = AvailableReceiveBuffer.Slice(TotalStr);
+						auto Index = HeadStr.find(SubSpe);
+						if(Index == std::u8string_view::npos)
+						{
+							if (EC)
+							{
+								ReceiveBuffer.clear();
+								AvailableReceiveBuffer = {};
+								Type = ReceiveType::Finish;
+								return std::nullopt;
+							}
+							else
+								return ReadRequire{ false, FixOutputBuffer() };
+						}else
+						{
+							HeadStr = HeadStr.substr(0, Index);
+							HexChunkedContextCount Count;
+							Potato::Format::DirectScan(HeadStr, Count);
+							ContextRequire = Count.Value;
+							AvailableReceiveBuffer = AvailableReceiveBuffer.SubIndex(Index + SubSpe.size());
+							if (*ContextRequire == 0)
+							{
+								Type = ReceiveType::Finish;
+								return std::nullopt;
+							}
+							break;
+						}
+					}else
+					{
+						auto OldContextSize = OutputRespond.Context.size();
+						OutputRespond.Context.resize(OldContextSize + *ContextRequire);
+						if (AvailableReceiveBuffer.Size() >= *ContextRequire)
+						{
+							std::copy(
+								ReceiveBuffer.begin() + AvailableReceiveBuffer.Begin(),
+								ReceiveBuffer.begin() + AvailableReceiveBuffer.Begin() + *ContextRequire,
+								OutputRespond.Context.begin() + OldContextSize
+							);
+							AvailableReceiveBuffer = AvailableReceiveBuffer.SubIndex(*ContextRequire);
+							Type = ReceiveType::Finish;
+							ContextRequire.reset();
+							return std::nullopt;
+						}
+						else
+						{
+							std::copy(
+								ReceiveBuffer.begin() + AvailableReceiveBuffer.Begin(),
+								ReceiveBuffer.begin() + AvailableReceiveBuffer.End(),
+								OutputRespond.Context.begin() + OldContextSize
+							);
+							auto OutputSpan = std::span(OutputRespond.Context).subspan(OldContextSize + AvailableReceiveBuffer.Size());
+							LastRespondContextSize = AvailableReceiveBuffer.Size();
+							AvailableReceiveBuffer = {};
+							Type = ReceiveType::Finish;
+							ContextRequire.reset();
+							return ReadRequire{ true, OutputSpan };
+						}
+						break;
+					}
+					break;
+				}
+			default:
+				return std::nullopt;
 			}
-			return Data;
 		}
 	}
 
