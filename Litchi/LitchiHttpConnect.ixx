@@ -108,6 +108,8 @@ export namespace Litchi::Http
 					AbleToSend = false;
 				}else
 				{
+					if (Target.empty())
+						Target = std::u8string_view{ u8"/" };
 					auto RequireSize = FormatSizeHeadOnlyRequest(Method, Target, Optional, ContextT);
 					SendBuffer.resize(RequireSize);
 					FormatToHeadOnlyRequest(std::span(SendBuffer), Method, Target, Optional, ContextT);
