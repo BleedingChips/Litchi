@@ -17,19 +17,15 @@ namespace Litchi::ErrorCode
 namespace Litchi
 {
 
-	Context::Context(Potato::Task::TaskContext::Ptr LinkedTaskContext, std::size_t TaskCount, void* Adress, std::pmr::memory_resource* IMResource)
+	Context::Context(Potato::Task::TaskContext::Ptr LinkedTaskContext, std::size_t TaskCount, void* Adress, std::size_t Priority, std::u8string_view TaskName, std::pmr::memory_resource* IMResource)
 		: IMResource(IMResource), ContextPtr(AsioWrapper::Context::Construct(Adress)),
-	LinkedTaskContext(std::move(LinkedTaskContext)), RequestTaskCount(std::max(TaskCount, std::size_t{1}))
+	LinkedTaskContext(std::move(LinkedTaskContext)), RequestTaskCount(std::max(TaskCount, std::size_t{1})),
+	Priority(Priority), TaskName(TaskName)
 	{
 
 	}
 
-	std::u8string_view Context::GetTaskName() const
-	{
-		return u8"asio io_context";
-	}
-
-	auto Context::Create(Potato::Task::TaskContext::Ptr LinkedTaskContext, std::size_t TaskCount, std::pmr::memory_resource* IMemoryResource)
+	auto Context::Create(Potato::Task::TaskContext::Ptr LinkedTaskContext, std::size_t TaskCount, std::size_t Priority, std::u8string_view TaskName, std::pmr::memory_resource* IMemoryResource)
 	-> Ptr
 	{
 		if (LinkedTaskContext && IMemoryResource != nullptr)
@@ -43,7 +39,7 @@ namespace Litchi
 			if (MPtr != nullptr)
 			{
 				auto P = reinterpret_cast<std::byte*>(MPtr) + sizeof(Context);
-				Ptr ConAdress {new (MPtr) Context{std::move(LinkedTaskContext), TaskCount, P, IMemoryResource}};
+				Ptr ConAdress {new (MPtr) Context{std::move(LinkedTaskContext), TaskCount, P, Priority, TaskName, IMemoryResource}};
 				return ConAdress;
 			}
 		}
@@ -76,7 +72,7 @@ namespace Litchi
 			std::lock_guard lg(ContextMutex, std::adopt_lock);
 			if(CurrentRequest >= RunningTaskCount)
 			{
-				Context.CommitDelayTask(this, std::chrono::system_clock::now() + std::chrono::milliseconds{ 1 });
+				Context.CommitDelayTask(this, std::chrono::system_clock::now() + std::chrono::milliseconds{ 1 }, GetPriority(), GetTaskName());
 			}else
 			{
 				RunningTaskCount -= 1;
@@ -92,7 +88,7 @@ namespace Litchi
 		{
 			assert(LinkedTaskContext);
 			++RunningTaskCount;
-			LinkedTaskContext->CommitTask(this);
+			LinkedTaskContext->CommitTask(this, GetPriority(), GetTaskName());
 		}
 	}
 

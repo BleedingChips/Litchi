@@ -22,21 +22,26 @@ export namespace Litchi
 
 		using Ptr = Potato::Task::ControlPtr<Context>;
 
-		static Ptr Create(Potato::Task::TaskContext::Ptr LinkedTaskContext, std::size_t TaskCount = 1, std::pmr::memory_resource* IMemoryResource = std::pmr::get_default_resource());
+		static Ptr Create(Potato::Task::TaskContext::Ptr LinkedTaskContext, std::size_t TaskCount = 1, std::size_t Priority = *Potato::Task::TaskPriority::Normal, std::u8string_view TaskName = u8"AsioContext", std::pmr::memory_resource* IMemoryResource = std::pmr::get_default_resource());
 
 		AsioWrapper::Context& GetContextImp() { return *ContextPtr; }
 
 		void AddRequest();
 		void SubRequest();
 
+		std::u8string_view GetTaskName() const{ return TaskName; }
+		std::size_t GetPriority() const { return Priority; }
+
 	protected:
 
-		virtual std::u8string_view GetTaskName() const;
 		virtual void Release() override;
 		virtual void operator()(Potato::Task::ExecuteStatus Status, Potato::Task::TaskContext& Context) override;
 
-		Context(Potato::Task::TaskContext::Ptr LinkedTaskContext, std::size_t TaskCount, void* Adress, std::pmr::memory_resource* IMResource);
+		Context(Potato::Task::TaskContext::Ptr LinkedTaskContext, std::size_t TaskCount, void* Adress, std::size_t Priority, std::u8string_view TaskName, std::pmr::memory_resource* IMResource);
 		~Context();
+
+		std::size_t const Priority;
+		std::u8string_view const TaskName;
 		
 		std::pmr::memory_resource* IMResource = nullptr;
 		AsioWrapper::Context* ContextPtr = nullptr;
