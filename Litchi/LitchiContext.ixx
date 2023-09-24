@@ -35,7 +35,7 @@ export namespace Litchi
 	protected:
 
 		virtual void Release() override;
-		virtual void operator()(Potato::Task::ExecuteStatus Status, Potato::Task::TaskContext& Context) override;
+		virtual void operator()(Potato::Task::ExecuteStatus& Status) override;
 
 		Context(Potato::Task::TaskContext::Ptr LinkedTaskContext, std::size_t TaskCount, void* Adress, std::size_t Priority, std::u8string_view TaskName, std::pmr::memory_resource* IMResource);
 		~Context();

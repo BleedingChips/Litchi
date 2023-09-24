@@ -60,7 +60,7 @@ namespace Litchi
 		ContextPtr->~Context();
 	}
 
-	void Context::operator()(Potato::Task::ExecuteStatus Status, Potato::Task::TaskContext& Context)
+	void Context::operator()(Potato::Task::ExecuteStatus& Status)
 	{
 		while(GetContextImp().PollOne())
 		{
@@ -72,7 +72,7 @@ namespace Litchi
 			std::lock_guard lg(ContextMutex, std::adopt_lock);
 			if(CurrentRequest >= RunningTaskCount)
 			{
-				Context.CommitDelayTask(this, std::chrono::system_clock::now() + std::chrono::milliseconds{ 1 }, GetPriority(), GetTaskName());
+				Status.Context.CommitDelayTask(this, std::chrono::system_clock::now() + std::chrono::milliseconds{ 1 }, {GetPriority(), GetTaskName()});
 			}else
 			{
 				RunningTaskCount -= 1;
@@ -88,7 +88,7 @@ namespace Litchi
 		{
 			assert(LinkedTaskContext);
 			++RunningTaskCount;
-			LinkedTaskContext->CommitTask(this, GetPriority(), GetTaskName());
+			LinkedTaskContext->CommitTask(this, {GetPriority(), GetTaskName()});
 		}
 	}
 

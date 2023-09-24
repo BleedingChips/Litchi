@@ -32,7 +32,7 @@ if os.scriptdir() == os.projectdir() then
 
     for _, file in ipairs(os.files("Test/*.cpp")) do
 
-        local name = path.basename(file)
+        local name = "ZTest_" .. path.basename(file)
 
         target(name)
             set_kind("binary")
