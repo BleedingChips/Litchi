@@ -1,29 +1,33 @@
 module;
 
-export module Litchi.Context;
+export module LitchiContext;
 
-export import Potato.STD;
-export import Potato.Allocator;
-export import Litchi.Socket;
-export import Litchi.Http;
+import std;
+import LitchiSocket;
+import LitchiHttp;
+import PotatoPointer;
 
 export namespace Litchi
 {
 
 	struct Context
 	{
-		template<typename T>
-		using AllocatorT = Potato::Misc::AllocatorT<T>;
+		struct Wrapper
+		{
+			void AddRef(Context const* ptr) const { ptr->AddContextRef(); };
+			void SubRef(Context const* ptr) const { ptr->SubContextRef(); };
+		};
+		
+		virtual ~Context() = default;
 
-		virtual void AddRef() const = 0;
-		virtual void SubRef() const = 0;
-		virtual ~Context();
+		using Ptr = Potato::Pointer::IntrusivePtr<Context>;
 
-		using PtrT = Potato::Misc::IntrusivePtr<Context>;
-
-		static auto CreateBackEnd(std::size_t ThreadCount = 1, AllocatorT<Context> Allocator = {}) -> PtrT;
+		static Ptr CreateBackEnd(std::size_t ThreadCount = 1, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 		
 		virtual Socket CreateIpTcpSocket() = 0;
-		virtual Http11 CreateHttp11(AllocatorT<std::byte> Allocator = {}) = 0;
+		virtual Http11 CreateHttp11(std::pmr::memory_resource* resource = std::pmr::get_default_resource()) = 0;
+	protected:
+		virtual void AddContextRef() const = 0;
+		virtual void SubContextRef() const = 0;
 	};
 }

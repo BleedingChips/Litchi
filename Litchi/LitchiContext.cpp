@@ -1,21 +1,14 @@
 module;
 
 #include "asio.hpp"
-#include "LitchiSocketExecutor.h"
 
-module Litchi.Context;
-import Litchi.Socket;
-import Litchi.Http;
-import Potato.Allocator;
+module LitchiContext;
+import LitchiSocket;
+import LitchiHttp;
 
 namespace Litchi
 {
-
-	template<typename T>
-	using AllocatorT = Potato::Misc::AllocatorT<T>;
-
-	Context::~Context() {}
-
+	/*
 	ErrorT Translate(std::error_code const& EC)
 	{
 		if (!EC)
@@ -129,14 +122,14 @@ namespace Litchi
 			}
 		}
 	};
+	*/
 
-	auto Context::CreateBackEnd(std::size_t ThreadCount, AllocatorT<Context> InputAllocator) -> PtrT
+	auto Context::CreateBackEnd(std::size_t ThreadCount, std::pmr::memory_resource* resource) -> Ptr
 	{
 		AllocatorT<ContextBackEnds> TempA{ std::move(InputAllocator) };
 		auto cur = TempA.allocate(1);
 		PtrT Ptr = new (cur) ContextBackEnds(std::move(TempA), ThreadCount);
 		return Ptr;
 	}
-
 }
 

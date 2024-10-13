@@ -1,14 +1,15 @@
 module;
 
-export module Litchi.Socket;
+export module LitchiSocket;
 
-export import Potato.Allocator;
-export import Potato.SmartPtr;
+import std;
+import PotatoPointer;
+import PotatoIR;
 
 export namespace Litchi
 {
 
-	enum class ErrorT : uint8_t
+	enum class ErrorT
 	{
 		None = 0,
 		ChannelOccupy,
@@ -21,9 +22,9 @@ export namespace Litchi
 
 	constexpr bool operator *(ErrorT Error) { return Error == ErrorT::None; }
 
-	struct SocketAgency
+	struct SocketAgency: public Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
-		using PtrT = Potato::Misc::IntrusivePtr<SocketAgency>;
+		using PtrT = Potato::Pointer::IntrusivePtr<SocketAgency>;
 
 		template<typename RespondFunction>
 		auto AsyncConnect(std::u8string_view Host, std::u8string_view Service, RespondFunction Func) -> bool
@@ -105,12 +106,11 @@ export namespace Litchi
 		bool IsReceiving() const { return Receiving; }
 		virtual std::u8string_view GetCurrentIpAdress() const { return u8""; };
 
-		void AddRef() const { RefCount.AddRef(); }
-		void SubRef() const { if (RefCount.SubRef()) { Release(); } }
-
-		SocketAgency() {}
+		
 
 	protected:
+
+		SocketAgency(Potato::IR::MemoryResourceRecord re) : MemoryResourceRecordIntrusiveInterface(re) {}
 
 		bool AbleToConnect() const { return !IsConnecting() && !IsSending() && !IsReceiving(); }
 		bool AbleToSend() const { return !IsConnecting() && !IsSending(); }
@@ -124,7 +124,6 @@ export namespace Litchi
 		}
 
 		std::mutex SocketMutex;
-		mutable Potato::Misc::AtomicRefCount RefCount;
 		bool Connecting = false;
 		bool Sending = false;
 		bool Receiving = false;

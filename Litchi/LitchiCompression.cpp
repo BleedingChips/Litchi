@@ -2,7 +2,7 @@ module;
 
 #include "zlib.h"
 
-module Litchi.Compression;
+module LitchiCompression;
 
 namespace Litchi
 {
