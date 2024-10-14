@@ -3,6 +3,7 @@ set_languages("cxxlatest")
 
 add_requires("zlib")
 add_requires("minizip")
+add_requires("asio")
 
 if os.scriptdir() == os.projectdir() then 
     includes("../Potato/")
