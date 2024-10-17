@@ -1,9 +1,9 @@
 module;
 
-module Litchi.Http;
-import Potato.Format;
-import Litchi.Compression;
-import Potato.Document;
+module LitchiHttp;
+import PotatoFormat;
+import LitchiCompression;
+import PotatoDocument;
 
 namespace Litchi
 {

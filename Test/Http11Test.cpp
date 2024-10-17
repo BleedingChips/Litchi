@@ -1,7 +1,8 @@
-import Litchi.Context;
-import Litchi.Compression;
-import Potato.STD;
-import Potato.Document;
+import std;
+import LitchiContext;
+import LitchiCompression;
+import LitchiHttp;
+import PotatoDocument;
 
 using namespace Litchi;
 
@@ -10,7 +11,7 @@ int main()
 	
 	std::cout<< "Begin !" << std::endl;
 
-	auto Ptr = Context::CreateBackEnd();
+	auto Ptr = Context::Create();
 
 	auto I = Ptr->CreateHttp11();
 

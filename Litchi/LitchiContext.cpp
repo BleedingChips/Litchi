@@ -8,7 +8,7 @@ import LitchiHttp;
 
 namespace Litchi
 {
-	/*
+
 	ErrorT Translate(std::error_code const& EC)
 	{
 		if (!EC)
@@ -23,6 +23,24 @@ namespace Litchi
 		}
 	}
 
+
+	auto Context::Create(std::pmr::memory_resource* resource)
+		-> Ptr
+	{
+		auto re = Potato::IR::MemoryResourceRecord::Allocate<Context>(resource);
+		if(re)
+		{
+			new (re.Get()) Context{re};
+		}
+		return {};
+	}
+
+	Context::~Context()
+	{
+		context.stop();
+	}
+
+	/*
 	template<typename Interface, typename Core>
 	struct SocketHolder : public AllocatorT<SocketHolder<Interface, Core>>, public Interface, public Core
 	{
@@ -122,7 +140,6 @@ namespace Litchi
 			}
 		}
 	};
-	*/
 
 	auto Context::CreateBackEnd(std::size_t ThreadCount, std::pmr::memory_resource* resource) -> Ptr
 	{
@@ -131,5 +148,6 @@ namespace Litchi
 		PtrT Ptr = new (cur) ContextBackEnds(std::move(TempA), ThreadCount);
 		return Ptr;
 	}
+	*/
 }
 

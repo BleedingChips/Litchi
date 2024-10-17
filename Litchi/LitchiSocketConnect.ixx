@@ -1,5 +1,7 @@
 module;
 
+#include "asio/ip/tcp.hpp"
+
 export module LitchiSocket;
 
 import std;
@@ -16,11 +18,46 @@ export namespace Litchi
 		Eof,
 		HostNotFound,
 		Unknow,
-
-
 	};
 
 	constexpr bool operator *(ErrorT Error) { return Error == ErrorT::None; }
+
+	
+
+	struct EndPoint
+	{
+		std::optional<asio::ip::tcp::endpoint> endpoint;
+	};
+
+	struct TCPResolver : public Potato::IR::MemoryResourceRecordIntrusiveInterface
+	{
+		TCPResolver(Potato::IR::MemoryResourceRecord record) : MemoryResourceRecordIntrusiveInterface(record) {}
+	protected:
+		std::pmr::vector<asio::ip::tcp::endpoint> endpoint;
+	};
+
+	struct TCPSocket
+	{
+
+		struct Wrapper
+		{
+			void AddRef(TCPSocket const* ptr) { ptr->AddTCPSocketRef(); }
+			void SubRef(TCPSocket const* ptr) { ptr->SubTCPSocketRef(); }
+		};
+
+		bool Open(asio::ip::tcp::endpoint endpoint);
+		bool Close();
+
+	protected:
+
+		virtual void AddTCPSocketRef() const = 0;
+		virtual void SubTCPSocketRef() const = 0;
+
+		asio::ip::tcp::endpoint endpoint;
+		asio::ip::tcp socket;
+	};
+
+	/*
 
 	struct SocketAgency: public Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
@@ -171,4 +208,5 @@ export namespace Litchi
 	};
 
 	using Socket = AgencyWrapperT<SocketAgency>;
+	*/
 }
