@@ -1,5 +1,6 @@
-#include "LitchiSocketExecutor.h"
+//#include "LitchiSocketExecutor.h"
 
+/*
 namespace Litchi
 {
 	void TcpSocketExecuter::Close()
@@ -14,3 +15,4 @@ namespace Litchi
 		Socket.cancel();
 	}
 }
+*/

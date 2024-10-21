@@ -44,6 +44,7 @@ export namespace Litchi
 
 	auto FindHeadOptionalValue(std::u8string_view Key, std::u8string_view Head) -> std::optional<std::u8string_view>;
 
+	/*
 	struct Http11Agency : protected SocketAgency
 	{
 		template<typename T>
@@ -210,5 +211,6 @@ export namespace Litchi
 	};
 
 	using Http11 = AgencyWrapperT<Http11Agency>;
+	*/
 }
 

@@ -11,7 +11,7 @@ end
 
 target("Litchi")
     set_kind("static")
-    add_files("Litchi/*.ixx")
+    add_files("Litchi/*.ixx", {public=true})
     add_files("Litchi/*.cpp")
     add_packages("asio")
     add_deps("Potato")

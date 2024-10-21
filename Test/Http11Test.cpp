@@ -1,4 +1,5 @@
 import std;
+
 import LitchiContext;
 import LitchiCompression;
 import LitchiHttp;
@@ -13,6 +14,7 @@ int main()
 
 	auto Ptr = Context::Create();
 
+	/*
 	auto I = Ptr->CreateHttp11();
 
 	std::promise<void> P;
@@ -75,6 +77,6 @@ int main()
 	
 
 	Fur.get();
-
+	*/
 	return 0;
 }

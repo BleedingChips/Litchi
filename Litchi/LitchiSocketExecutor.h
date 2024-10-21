@@ -4,7 +4,7 @@
 #include <functional>
 #include <system_error>
 
-import Litchi.Socket;
+import LitchiSocket;
 
 namespace Litchi
 {

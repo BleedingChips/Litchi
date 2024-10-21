@@ -37,12 +37,26 @@ namespace Potato::Format
 		}
 		return {};
 	}
-
+	/*
 	template<>
 	struct Formatter<Litchi::HttpMethodT, char8_t>
 	{
-		static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpMethodT Input);
-		static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Parameter, Litchi::HttpMethodT Input);
+		bool operator()(FormatWritter<char8_t>& Writter, std::basic_string_view<char8_t> Parameter, Litchi::HttpMethodT method) {
+			auto Last = Writter.GetLastBuffer();
+			auto Trans = Trans();
+			if (Last.has_value())
+			{
+				auto Result = Encode::StrEncoder<SUnicodeT, UnicodeType>::EncodeUnSafe(Input, *Last);
+				Writter.Allocate(Result.TargetSpace);
+			}
+			else {
+				auto Tar = Trans(Input);
+				return Tar.size();
+				auto Result = Encode::StrEncoder<SUnicodeT, UnicodeType>::RequireSpaceUnSafe(Input);
+				Writter.Allocate(Result.TargetSpace);
+			}
+			return true;
+		}
 	};
 
 	template<>
@@ -62,6 +76,22 @@ namespace Potato::Format
 	template<>
 	struct Formatter<Litchi::HttpOptionT, char8_t>
 	{
+		bool operator()(FormatWritter<char8_t>& Writter, std::basic_string_view<char8_t> Parameter, std::basic_string_view<char8_t> const& Input) {
+			
+			auto Last = Writter.GetLastBuffer();
+			if (Last.has_value())
+			{
+				auto Result = Encode::StrEncoder<SUnicodeT, UnicodeType>::EncodeUnSafe(Input, *Last);
+				Writter.Allocate(Result.TargetSpace);
+			}
+			else {
+				auto Tar = Trans(Input);
+				return Tar.size();
+				auto Result = Encode::StrEncoder<SUnicodeT, UnicodeType>::RequireSpaceUnSafe(Input);
+				Writter.Allocate(Result.TargetSpace);
+			}
+			return true;
+		}
 		static std::optional<std::size_t> Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input);
 		static std::optional<std::size_t> FormatSize(std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input);
 	};
@@ -90,6 +120,9 @@ namespace Potato::Format
 
 	std::optional<std::size_t> Formatter<Litchi::HttpOptionT, char8_t>::Format(std::span<char8_t> Output, std::basic_string_view<char8_t> Pars, Litchi::HttpOptionT const& Input)
 	{
+		Format::FormatWritter<char8_t> writter;
+
+
 		auto Count = *Format::DirectFormatToUnSafe(Output, {}, Input.Connection);
 		Output = Output.subspan(Count);
 		if (!Input.AcceptEncoding.empty())
@@ -180,6 +213,7 @@ namespace Potato::Format
 			return true;
 		}
 	};
+	*/
 }
 
 namespace Litchi
@@ -212,6 +246,7 @@ namespace Litchi
 
 	static constexpr std::u8string_view HeadOnlyRequestFor = u8"{} {} HTTP/1.1\r\nHost: {}\r\n{}{}Content-Length: 0\r\n\r\n";
 
+	/*
 	std::size_t Http11Agency::FormatSizeHeadOnlyRequest(HttpMethodT Method, std::u8string_view Target, HttpOptionT const& Optional, HttpContextT const& ContextT)
 	{
 		return *Potato::Format::FormatSize(HeadOnlyRequestFor, Method, Target, Host, Optional, ContextT);
@@ -383,4 +418,5 @@ namespace Litchi
 		}
 		return {};
 	}
+	*/
 }
