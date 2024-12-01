@@ -1,3 +1,20 @@
+module;
+
+#include <winsock2.h>
+
+module LitchiSocketForWindows;
+
+namespace Litchi
+{
+	TCPSocketForWindows::~TCPSocketForWindows()
+	{
+		self_socket = socket(
+			
+		);
+	}
+}
+
+
 //#include "LitchiSocketExecutor.h"
 
 /*

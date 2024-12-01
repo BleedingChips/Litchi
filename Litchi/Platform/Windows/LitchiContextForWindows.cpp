@@ -1,12 +1,62 @@
 module;
 
+#include <winsock2.h>
+
 module LitchiContext;
 import LitchiSocket;
 import LitchiHttp;
+import LitchiSocketForWindows;
 
 namespace Litchi
 {
 
+	
+
+
+	struct ContextImp : public Context
+	{
+		virtual void AddContextRef() const override {}
+		virtual void SubContextRef() const override {}
+
+		bool ready = false;
+
+		ContextImp()
+		{
+			WORD ver = MAKEWORD(2, 2);
+			WSADATA data;
+			int init_res = WSAStartup(ver, &data);
+			ready = (init_res == 0);
+		}
+		~ContextImp()
+		{
+			if(ready)
+			{
+				WSACleanup();
+			}
+		}
+
+		virtual TCPSocket::Ptr CreateTCPSocket(std::u8string_view host, std::pmr::memory_resource* resource = std::pmr::get_default_resource()) override;
+
+		operator bool () const { return ready; }
+	};
+
+	Context::Ptr Context::Create(std::pmr::memory_resource* resource)
+	{
+		static ContextImp imp;
+		if(imp)
+			return &imp;
+		return {};
+	}
+
+	TCPSocket::Ptr ContextImp::CreateTCPSocket(std::u8string_view host, std::pmr::memory_resource* resource)
+	{
+		return Potato::IR::MemoryResourceRecord::AllocateAndConstruct<TCPSocketForWindows>(resource);
+	}
+
+	
+
+
+	/*
 	ErrorT Translate(std::error_code const& EC)
 	{
 		if (!EC)
@@ -20,23 +70,20 @@ namespace Litchi
 			return ErrorT::Unknow;
 		}
 	}
+	*/
 
-
-	auto Context::Create(std::pmr::memory_resource* resource)
-		-> Ptr
+	/*
+	struct TCPSocketImp : public TCPSocket, public Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
-		auto re = Potato::IR::MemoryResourceRecord::Allocate<Context>(resource);
-		if(re)
-		{
-			new (re.Get()) Context{re};
-		}
+
+		Context::Ptr reference;
+	};
+
+	TCPSocket::Ptr Context::CreateTCPSocket(std::u8string_view host, std::pmr::memory_resource* resource)
+	{
 		return {};
 	}
-
-	Context::~Context()
-	{
-		context.stop();
-	}
+	*/
 
 	/*
 	template<typename Interface, typename Core>

@@ -3,7 +3,7 @@ set_languages("cxxlatest")
 
 add_requires("zlib")
 add_requires("minizip")
-add_requires("asio")
+--add_requires("asio")
 
 if os.scriptdir() == os.projectdir() then 
     includes("../Potato/")
@@ -13,7 +13,12 @@ target("Litchi")
     set_kind("static")
     add_files("Litchi/*.ixx", {public=true})
     add_files("Litchi/*.cpp")
-    add_packages("asio")
+    if is_plat("windows") then
+        add_links("ws2_32.lib")
+        add_files("Litchi/Platform/Windows/*.ixx")
+        add_files("Litchi/Platform/Windows/*.cpp")
+    end
+    --add_packages("asio")
     add_deps("Potato")
     add_packages("zlib")
     add_packages("minizip")

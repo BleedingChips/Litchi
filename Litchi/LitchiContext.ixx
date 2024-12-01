@@ -1,7 +1,5 @@
 module;
 
-#include <asio/io_context.hpp>
-
 export module LitchiContext;
 
 import std;
@@ -14,7 +12,7 @@ import LitchiHttp;
 export namespace Litchi
 {
 
-	struct Context : public Potato::IR::MemoryResourceRecordIntrusiveInterface
+	struct Context
 	{
 		struct Wrapper
 		{
@@ -22,21 +20,21 @@ export namespace Litchi
 			void SubRef(Context const* ptr) const { ptr->SubContextRef(); };
 		};
 		
-		~Context();
+		~Context() = default;
 
-		using Ptr = Potato::Pointer::IntrusivePtr<Context>;
+		using Ptr = Potato::Pointer::IntrusivePtr<Context, Wrapper>;
 
 		static Ptr Create(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		virtual TCPSocket::Ptr CreateTCPSocket(std::u8string_view host, std::pmr::memory_resource* resource = std::pmr::get_default_resource()) = 0;
 		
 		//virtual Socket CreateIpTcpSocket() = 0;
 		//virtual Http11 CreateHttp11(std::pmr::memory_resource* resource = std::pmr::get_default_resource()) = 0;
 
 	protected:
 
-		Context(Potato::IR::MemoryResourceRecord record) : MemoryResourceRecordIntrusiveInterface(record) {}
-		virtual void AddContextRef() const { MemoryResourceRecordIntrusiveInterface::AddRef(); }
-		virtual void SubContextRef() const { MemoryResourceRecordIntrusiveInterface::SubRef(); }
+		virtual void AddContextRef() const = 0;
+		virtual void SubContextRef() const = 0;
 
-		asio::io_context context;
+		//asio::io_context context;
 	};
 }

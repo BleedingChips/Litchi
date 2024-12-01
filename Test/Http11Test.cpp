@@ -12,7 +12,11 @@ int main()
 	
 	std::cout<< "Begin !" << std::endl;
 
-	auto Ptr = Context::Create();
+	auto context = Context::Create();
+
+	auto connext = context->CreateTCPSocket(u8"1212");
+
+	volatile int i = 0;
 
 	/*
 	auto I = Ptr->CreateHttp11();

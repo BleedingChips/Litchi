@@ -1,16 +1,43 @@
 module;
 
-#include "asio/ip/tcp.hpp"
-
 export module LitchiSocket;
 
 import std;
 import PotatoPointer;
 import PotatoIR;
 
+
 export namespace Litchi
 {
 
+	enum class SocketState
+	{
+		Lose,
+	};
+
+	struct TCPSocket
+	{
+
+		struct Wrapper
+		{
+			void AddRef(TCPSocket const* ptr) { ptr->AddTCPSocketRef(); }
+			void SubRef(TCPSocket const* ptr) { ptr->SubTCPSocketRef(); }
+		};
+
+		using Ptr = Potato::Pointer::IntrusivePtr<TCPSocket, Wrapper>;
+
+	protected:
+
+		std::atomic<SocketState> state = SocketState::Lose;
+
+		virtual void AddTCPSocketRef() const = 0;
+		virtual void SubTCPSocketRef() const = 0;
+
+		//asio::ip::tcp::endpoint endpoint;
+		//asio::ip::tcp socket;
+	};
+
+	/*
 	enum class ErrorT
 	{
 		None = 0,
@@ -48,6 +75,8 @@ export namespace Litchi
 		bool Open(asio::ip::tcp::endpoint endpoint);
 		bool Close();
 
+		using Ptr = Potato::Pointer::IntrusivePtr<TCPSocket, Wrapper>;
+
 	protected:
 
 		virtual void AddTCPSocketRef() const = 0;
@@ -56,6 +85,7 @@ export namespace Litchi
 		asio::ip::tcp::endpoint endpoint;
 		asio::ip::tcp socket;
 	};
+	*/
 
 	/*
 
